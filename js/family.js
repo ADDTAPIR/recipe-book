@@ -5,13 +5,13 @@ import { gh } from './sync.js';
 const FILE = 'recipe-book-family.json';
 const DESC = 'Recipe Book: view-only copy for family and friends';
 
-export function familyPayload(recipes, synonyms, ownerName) {
+export function familyPayload(recipes, synonyms, ownerName, contact) {
   const keep = recipes.filter(r => !r.deleted).map(r => ({
     id: r.id, title: r.title, description: r.description, serves: r.serves, ingredients: r.ingredients,
     method: r.method, notes: r.notes, mealTypes: r.mealTypes, courses: r.courses, tags: r.tags,
     links: r.links, updatedAt: r.updatedAt, reviewed: true,
   }));
-  return JSON.stringify({ app: 'recipe-book', kind: 'family', ownerName, publishedAt: Date.now(), recipes: keep, synonyms });
+  return JSON.stringify({ app: 'recipe-book', kind: 'family', ownerName, contact: contact || {}, publishedAt: Date.now(), recipes: keep, synonyms });
 }
 
 export function familyKey(recipes, synonymsUpdatedAt, ownerName) {

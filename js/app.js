@@ -21,7 +21,8 @@ const S = {
   importDraft: null,
   sync: null, // { token, gistId, lastSync, error }
   family: null, // owner: { gistId, owner, name, key, publishedAt, error }
-  viewer: null, // family member: { gistId, ownerName, updatedAt, error }
+  viewer: null, // family member: { gistId, ownerName, contact, updatedAt, error }
+  myLikes: {}, myName: '',
 };
 const $ = (sel, el = document) => el.querySelector(sel);
 const view = $('#view');
@@ -281,7 +282,41 @@ route(/^\/r\/(.+)$/, id => {
 });
 
 // Likes / "I made this" (filled in once a place to store them is chosen)
-function drawLikes(r) { }
+function drawLikes(r) {
+  const el = $('#likes'); if (!el || !V()) return;
+  const mine = S.myLikes[r.id] || {};
+  el.innerHTML = `<div class="likes">
+    <button class="btn secondary ${mine.like ? 'on' : ''}" data-like="like">♥ I like this</button>
+    <button class="btn secondary ${mine.made ? 'on' : ''}" data-like="made">🍳 I made this</button>
+    ${mine.like || mine.made ? `<span class="who">You told ${h(OWNER())} on ${h(new Date(mine.at).toLocaleDateString())}</span>` : ''}</div>`;
+  el.querySelectorAll('[data-like]').forEach(b => b.onclick = () => openLikeSheet(r, b.dataset.like));
+}
+
+function openLikeSheet(r, kind) {
+  const c = S.viewer.contact || {};
+  openSheet(`<h2>${kind === 'made' ? 'I made this' : 'I like this'}: ${h(r.title)}</h2>
+    <label class="field"><span>Your name</span><input type="text" id="lkName" value="${h(S.myName || '')}" placeholder="So ${h(OWNER())} knows who it is"></label>
+    <label class="field"><span>Add a note (optional)</span><input type="text" id="lkNote" placeholder="${kind === 'made' ? 'e.g. Added extra chilli, delicious!' : 'e.g. Can’t wait to try it'}"></label>
+    <div class="share-grid">
+      <button class="btn" style="background:#25d366;color:#fff" id="lkWa">Send on WhatsApp</button>
+      <button class="btn" id="lkMail">Send by email</button>
+    </div>
+    <p class="hint" style="margin-top:10px">${c.whatsapp || c.email ? `This sends a short message to ${h(OWNER())}.` : `Pick ${h(OWNER())} as the person to send it to.`}</p>`, sh => {
+    const send = async how => {
+      const name = $('#lkName', sh).value.trim(); const note = $('#lkNote', sh).value.trim();
+      S.myName = name; await db.setSetting('myName', name);
+      const text = `${name || 'Someone'} ${kind === 'made' ? 'made' : 'liked'} your recipe “${r.title}” ${kind === 'made' ? '🍳' : '♥'}${note ? '\n' + note : ''}`;
+      const url = how === 'wa'
+        ? (c.whatsapp ? `https://wa.me/${c.whatsapp.replace(/\D/g, '')}?text=` : 'https://wa.me/?text=') + encodeURIComponent(text)
+        : `mailto:${encodeURIComponent(c.email || '')}?subject=${encodeURIComponent((kind === 'made' ? 'I made ' : 'I like ') + r.title)}&body=${encodeURIComponent(text)}`;
+      S.myLikes[r.id] = { ...(S.myLikes[r.id] || {}), [kind]: true, at: Date.now() }; await db.setSetting('myLikes', S.myLikes);
+      closeSheet(); drawLikes(r);
+      if (how === 'wa') window.open(url, '_blank'); else location.href = url;
+    };
+    $('#lkWa', sh).onclick = () => send('wa');
+    $('#lkMail', sh).onclick = () => send('mail');
+  });
+}
 
 // ---------------- Links between recipes ----------------
 function linked(r) { return (r.links || []).map(l => ({ l, t: byId(l.id) })).filter(x => x.t && !x.t.deleted); }
@@ -685,10 +720,10 @@ async function doSync(manual) {
 async function saveFamily() { await db.setSetting('family', S.family); }
 async function publishFamily(force) {
   const f = S.family; if (!f?.gistId || !S.sync?.token || !navigator.onLine) return;
-  const key = familyKey(live(), S.synonymsUpdatedAt, f.name);
+  const key = familyKey(live(), S.synonymsUpdatedAt, f.name + JSON.stringify(f.contact || {}));
   if (!force && key === f.key) return;
   try {
-    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || 'Andy'));
+    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || 'Andy', f.contact));
     S.family = { ...f, key, publishedAt: Date.now(), error: '' };
   } catch (e) { S.family = { ...f, error: e.message }; }
   await saveFamily();
@@ -729,6 +764,11 @@ route(/^\/family$/, () => {
       <button class="btn secondary" id="famCopy">Copy link</button>
       <button class="btn secondary" id="famPub">Update now</button>
     </div>
+    <div class="settings-group">Likes and “I made this”</div>
+    <p class="hint">When family tap ♥ or “I made this”, a short message is sent to you. Add your WhatsApp number and email so it comes straight to you (family can see these).</p>
+    <label class="field"><span>WhatsApp number, with country code</span><input type="tel" id="famWa" value="${h(f.contact?.whatsapp || '')}" placeholder="e.g. +31 6 1234 5678"></label>
+    <label class="field"><span>Email</span><input type="email" id="famEmail" value="${h(f.contact?.email || '')}" placeholder="you@example.com"></label>
+    <div class="btn-row"><button class="btn secondary" id="famContact">Save</button></div>
     <p class="hint">${f.publishedAt ? 'Last updated for family ' + h(new Date(f.publishedAt).toLocaleString()) : ''}</p>
     <div class="settings-group">Stop sharing</div>
     <div class="card"><ul class="list-plain">
@@ -737,6 +777,10 @@ route(/^\/family$/, () => {
     </ul></div>
     <p class="hint">People who already opened the old link keep the recipes they’d downloaded, but get no further updates.</p>`;
   $('#famCopy').onclick = async () => { try { await navigator.clipboard.writeText(link); } catch { $('#famLink').select(); document.execCommand('copy'); } toast('Link copied'); };
+  $('#famContact').onclick = async () => {
+    S.family = { ...S.family, contact: { whatsapp: $('#famWa').value.trim(), email: $('#famEmail').value.trim() } };
+    await saveFamily(); await publishFamily(true); toast(S.family.error || 'Saved');
+  };
   $('#famPub').onclick = async () => { await publishFamily(true); toast(S.family.error || 'Family copy updated'); render(); };
   const stop = async (again) => {
     if (!confirm(again ? 'Make a new link? The current link will stop getting updates.' : 'Stop sharing? The link will stop getting updates.')) return;
@@ -760,7 +804,7 @@ async function refreshViewer(manual) {
     await db.putRecipes(incoming);
     S.recipes = incoming;
     if (data.synonyms) S.synonyms = data.synonyms;
-    S.viewer = { ...S.viewer, ownerName: data.ownerName || S.viewer.ownerName, updatedAt: data.publishedAt || Date.now(), checkedAt: Date.now(), error: '' };
+    S.viewer = { ...S.viewer, ownerName: data.ownerName || S.viewer.ownerName, contact: data.contact || {}, updatedAt: data.publishedAt || Date.now(), checkedAt: Date.now(), error: '' };
     rebuild(); if (['/', '/settings'].includes(render.current) || render.current.startsWith('/r/')) render();
     if (manual) toast('Up to date');
   } catch (e) {
@@ -845,7 +889,7 @@ async function boot() {
   } else if (fParam && S.viewer && S.viewer.gistId !== fParam) {
     S.viewer = { gistId: fParam }; await db.setSetting('viewer', S.viewer);
   }
-  if (V()) return bootViewer();
+  if (V()) { S.myLikes = (await db.getSetting('myLikes')) || {}; S.myName = (await db.getSetting('myName')) || ''; return bootViewer(); }
   const syn = await db.getSetting('synonyms');
   if (syn?.list) { S.synonyms = syn.list; S.synonymsUpdatedAt = syn.at || 0; }
   S.sync = (await db.getSetting('sync')) || null;
