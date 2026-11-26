@@ -5,6 +5,7 @@ import { SearchIndex, DEFAULT_SYNONYMS } from './search.js';
 import { extractIngredients } from './vocab.js';
 import { syncNow } from './sync.js';
 import { autoLink, findCues } from './links.js';
+import { familyPayload, familyKey, createFamily, updateFamily, deleteFamily, fetchFamily, familyLink } from './family.js';
 
 // ---------------- State ----------------
 const S = {
@@ -19,9 +20,13 @@ const S = {
   lastSearch: null,
   importDraft: null,
   sync: null, // { token, gistId, lastSync, error }
+  family: null, // owner: { gistId, owner, name, key, publishedAt, error }
+  viewer: null, // family member: { gistId, ownerName, updatedAt, error }
 };
 const $ = (sel, el = document) => el.querySelector(sel);
 const view = $('#view');
+const V = () => !!S.viewer; // view-only family mode
+const OWNER = () => (S.viewer?.ownerName || 'Andy');
 
 function live() { return S.recipes.filter(r => !r.deleted); }
 function rebuild() { S.index = new SearchIndex(S.recipes, S.synonyms); updateBadge(); }
@@ -90,6 +95,7 @@ async function render() {
   $('#topActions').innerHTML = '';
   $('#backBtn').hidden = true;
   document.querySelectorAll('.tabbar a').forEach(a => a.classList.remove('active'));
+  if (V() && /^\/(new|edit|import|review|sync|synonyms|family)/.test(hash)) { location.replace('#/'); return; }
   for (const [re, fn] of routes) {
     const m = hash.match(re);
     if (m) { await fn(...m.slice(1)); break; }
@@ -112,7 +118,7 @@ const ICON = {
 
 // ---------------- Home / search ----------------
 route(/^\/$/, () => {
-  setTab('home'); setTitle('Recipes');
+  setTab('home'); setTitle(V() ? `${OWNER()}’s Recipes` : 'Recipes');
   topAction(S.selecting ? 'Done' : 'Select', () => { S.selecting = !S.selecting; if (!S.selecting) S.selected.clear(); render(); });
   const f = S.filters;
   const chip = (group, val, label) => `<button class="chip ${f[group] === val ? 'on' : ''}" data-g="${group}" data-v="${h(val)}">${h(label || val)}</button>`;
@@ -129,7 +135,7 @@ route(/^\/$/, () => {
     <div class="chips">${chip('course', '', 'All')}${used('courses', COURSES).map(c => chip('course', c)).join('')}</div>
     <div class="chip-label">Meal</div>
     <div class="chips">${chip('mealType', '', 'All')}${used('mealTypes', MEAL_TYPES).map(c => chip('mealType', c)).join('')}</div>
-    <div class="chips">${toggle('favourite', '★ Favourites')}${toggle('needsReview', 'Not yet reviewed')}${toggle('needsAmounts', 'Missing amounts')}</div>
+    ${V() ? '' : `<div class="chips">${toggle('favourite', '★ Favourites')}${toggle('needsReview', 'Not yet reviewed')}${toggle('needsAmounts', 'Missing amounts')}</div>`}
     <div id="results"></div>`;
   const q = $('#q');
   q.addEventListener('input', () => { S.query = q.value; $('#clearQ').hidden = !q.value; drawResults(); });
@@ -154,6 +160,10 @@ function inText(x) {
 
 function drawResults() {
   const el = $('#results'); if (!el) return;
+  if (!live().length && V()) {
+    el.innerHTML = `<div class="empty"><h2>${S.viewer.error ? 'Couldn’t load the recipes' : 'Loading recipes…'}</h2><p>${S.viewer.error ? h(S.viewer.error) : 'This needs an internet connection the first time.'}</p></div>`;
+    return;
+  }
   if (!live().length) {
     el.innerHTML = `<div class="empty"><h2>No recipes yet</h2><p>Import your recipes from Notes, or add one by hand.</p>
       <div class="btn-row"><a class="btn" href="#/import">Import from Notes</a><a class="btn secondary" href="#/new">Add a recipe</a></div></div>`;
@@ -177,7 +187,7 @@ function drawResults() {
       return `<li class="card ${sel ? 'selected' : ''}"><a class="result" href="#/r/${r.id}" data-id="${r.id}">
         ${S.selecting ? '<span class="select-box"></span>' : ''}
         <div class="body"><h3>${r.favourite ? '<span class="fav">★</span> ' : ''}${h(r.title)}</h3>
-        <div>${catTags(r)}${r.reviewed ? '' : '<span class="tag warn">not reviewed</span>'}</div>
+        <div>${catTags(r)}${r.reviewed || V() ? '' : '<span class="tag warn">not reviewed</span>'}</div>
         <div class="ings">${highlightIngs(r, x.hitIngs)}</div>${match}</div></a></li>`;
     }).join('')}</ul>${n > 200 ? '<p class="hint">Showing the first 200. Narrow your search to see more.</p>' : ''}
     ${!n ? '<div class="empty"><p>Nothing found. Try fewer words, or clear the filters.</p></div>' : ''}`;
@@ -208,9 +218,9 @@ route(/^\/r\/(.+)$/, id => {
   const r = byId(id);
   if (!r || r.deleted) { view.innerHTML = '<div class="empty"><h2>Recipe not found</h2></div>'; return; }
   showBack('#/'); setTitle('');
-  topAction(ICON.star(r.favourite), async () => { r.favourite = !r.favourite; await saveRecipe(r); render(); }, 'Favourite');
+  if (!V()) topAction(ICON.star(r.favourite), async () => { r.favourite = !r.favourite; await saveRecipe(r); render(); }, 'Favourite');
   topAction(ICON.share, () => openShare([r]), 'Share');
-  topAction('Edit', () => go('#/edit/' + r.id));
+  if (!V()) topAction('Edit', () => go('#/edit/' + r.id));
   const hit = S.lastSearch?.results.find(x => x.r.id === id)?.hitIngs;
   const listed = r.ingredients.map((i, k) => ({ i, k }));
   let group = null;
@@ -219,7 +229,8 @@ route(/^\/r\/(.+)$/, id => {
     if ((i.group || '') !== (group || '')) { group = i.group || ''; if (group) g = `<li class="group">For the ${h(group)}</li>`; }
     const alt = i.alternatives?.length ? `<span class="sub">or ${h(i.alternatives.join(' / '))}</span>` : '';
     const note = i.note ? `<span class="sub">${h(i.note)}</span>` : '';
-    const qty = (i.qty || i.unit) ? h([i.qty, i.unit].filter(Boolean).join(' ')) : `<button data-addqty="${k}">+ amount</button>`;
+    const amt = [i.qty, i.unit].filter(Boolean).join(' ');
+    const qty = V() ? h(amt) : amt ? `<button class="amt" data-addqty="${k}" aria-label="Change amount">${h(amt)}</button>` : `<button data-addqty="${k}">+ amount</button>`;
     const name = hit?.has(k) ? `<mark>${h(i.name)}</mark>` : h(i.name);
     return g + `<li><span class="qty">${qty}</span><span class="name">${name}${i.optional ? '<span class="opt">optional</span>' : ''}${alt}${note}</span></li>`;
   }).join('');
@@ -228,36 +239,49 @@ route(/^\/r\/(.+)$/, id => {
     <article class="recipe-head">
       <h2>${h(r.title)}</h2>
       <div>${catTags(r)}${(r.tags || []).map(t => `<span class="tag">${h(t)}</span>`).join('')}</div>
-      ${r.serves ? `<div class="meta">Serves ${h(r.serves)}</div>` : ''}
+      ${V() ? (r.serves ? `<div class="meta">Serves ${h(r.serves)}</div>` : '') : `<div class="meta serves">Serves <button class="amt" id="servesBtn">${r.serves ? h(r.serves) : '+ add'}</button></div>`}
       ${r.description ? `<p class="desc">${h(r.description)}</p>` : ''}
-      ${r.reviewed ? '' : `<div class="review-banner"><span>Sorted automatically. Is the course and meal right?</span><span style="display:flex;gap:6px"><button class="btn secondary" id="fixCat">Change</button><button class="btn good" id="okCat">Yes</button></span></div>`}
+      ${r.reviewed || V() ? '' : `<div class="review-banner"><span>Sorted automatically. Is the course and meal right?</span><span style="display:flex;gap:6px"><button class="btn secondary" id="fixCat">Change</button><button class="btn good" id="okCat">Yes</button></span></div>`}
     </article>
     ${r.ingredients.length ? `<section class="section"><h3>Ingredients</h3>
-      ${fromText ? '<p class="hint" style="margin-top:-4px">Some of these were picked out of the recipe text. Tap “+ amount” to add a measurement.</p>' : ''}
+      ${fromText && !V() ? '<p class="hint" style="margin-top:-4px">Some of these were picked out of the recipe text. Tap “+ amount” to add a measurement, or tap an amount to change it.</p>' : ''}
       <ul class="ing-list">${ingHtml}</ul></section>` : ''}
     ${r.method ? `<section class="section"><h3>${r.ingredients.some(i => !i.fromText) ? 'Method' : 'Recipe'}</h3><div class="method">${linkify(r, r.method, 0)}</div></section>` : ''}
     ${r.notes ? `<section class="section"><h3>Notes</h3><div class="method">${linkify(r, r.notes, findCues(r.method || '').length)}</div></section>` : ''}
     ${linksSection(r)}
-    <div class="btn-row compact"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button><a class="btn secondary" href="#/edit/${r.id}">Edit</a></div>`;
+    <div id="likes"></div>
+    <div class="btn-row compact"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button>${V() ? '' : `<a class="btn secondary" href="#/edit/${r.id}">Edit</a>`}</div>`;
+  drawLikes(r);
   $('#shareBtn').onclick = () => openShare([r]);
   const ok = $('#okCat'); if (ok) ok.onclick = async () => { r.reviewed = true; await saveRecipe(r); toast('Marked as reviewed'); render(); };
   const fx = $('#fixCat'); if (fx) fx.onclick = () => openCategorySheet(r);
   view.querySelectorAll('[data-addqty]').forEach(b => b.onclick = () => {
     const k = +b.dataset.addqty; const span = b.parentElement;
-    span.innerHTML = `<input type="text" placeholder="e.g. 200 g" aria-label="Amount">`;
-    const inp = span.querySelector('input'); inp.focus();
+    const ing = r.ingredients[k];
+    const before = [ing.qty, ing.unit].filter(Boolean).join(' ');
+    span.innerHTML = `<input type="text" placeholder="e.g. 200 g" aria-label="Amount" value="${h(before)}">`;
+    const inp = span.querySelector('input'); inp.focus(); inp.select();
     const commit = async () => {
-      const v = inp.value.trim(); if (!v) { render(); return; }
-      const p = parseIngredientLine(v + ' x');
-      const ing = r.ingredients[k];
-      ing.qty = p.qty || v; ing.unit = p.qty ? p.unit : '';
-      delete ing.fromText;
+      const v = inp.value.trim();
+      if (v === before) { render(); return; }
+      if (!v) { ing.qty = ''; ing.unit = ''; }
+      else { const p = parseIngredientLine(v + ' x'); ing.qty = p.qty || v; ing.unit = p.qty ? p.unit : ''; delete ing.fromText; }
       await saveRecipe(r); render();
     };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = ''; inp.blur(); } });
     inp.addEventListener('blur', commit, { once: true });
   });
+  const sb = $('#servesBtn'); if (sb) sb.onclick = () => {
+    const wrap = sb.parentElement;
+    wrap.innerHTML = `Serves <input type="text" id="servesIn" value="${h(r.serves)}" placeholder="e.g. 4" style="width:90px;padding:4px 8px" aria-label="Serves">`;
+    const inp = $('#servesIn'); inp.focus(); inp.select();
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = r.serves || ''; inp.blur(); } });
+    inp.addEventListener('blur', async () => { const v = inp.value.trim(); if (v !== (r.serves || '')) { r.serves = v; await saveRecipe(r); } render(); }, { once: true });
+  };
 });
+
+// Likes / "I made this" (filled in once a place to store them is chosen)
+function drawLikes(r) { }
 
 // ---------------- Links between recipes ----------------
 function linked(r) { return (r.links || []).map(l => ({ l, t: byId(l.id) })).filter(x => x.t && !x.t.deleted); }
@@ -554,6 +578,7 @@ async function importBackup(text) {
 // ---------------- Settings ----------------
 route(/^\/settings$/, () => {
   setTab('settings'); setTitle('More');
+  if (V()) return viewerSettings();
   const n = live().length;
   const s = S.sync;
   const syncLine = s?.token ? (s.error ? `<span style="color:#c0392b">${h(s.error)}</span>` : s.lastSync ? 'Last synced ' + new Date(s.lastSync).toLocaleString() : 'Not synced yet') : 'Off';
@@ -562,6 +587,7 @@ route(/^\/settings$/, () => {
     <div class="card"><ul class="list-plain">
       <li><a class="row-link" href="#/synonyms">Ingredient names that mean the same <small>${S.synonyms.length} groups ›</small></a></li>
       <li><a class="row-link" href="#/sync">Sync between phone and Mac <small>${h(syncLine)} ›</small></a></li>
+      <li><a class="row-link" href="#/family">Share with family and friends <small>${S.family?.gistId ? 'On' : 'Off'} ›</small></a></li>
       <li><button class="row-link" id="exportJson">Download a backup <small>${n} recipes</small></button></li>
       <li><button class="row-link" id="exportTxt">Export all as plain text <small>.txt</small></button></li>
       <li><a class="row-link" href="#/import">Import recipes or a backup <small>›</small></a></li>
@@ -645,6 +671,7 @@ async function doSync(manual) {
     rebuild();
     if (res.changedLocal && (render.current === '/' || render.current === '/review')) render();
     if (manual) toast(res.changedLocal ? `Synced: ${res.changedLocal} updates received` : 'Synced');
+    await publishFamily(false);
   } catch (e) {
     S.sync = { ...S.sync, error: e.message };
     if (manual) toast(e.message);
@@ -652,6 +679,108 @@ async function doSync(manual) {
     syncing = false;
     await db.setSetting('sync', S.sync);
   }
+}
+
+// ---------------- Family link (owner side) ----------------
+async function saveFamily() { await db.setSetting('family', S.family); }
+async function publishFamily(force) {
+  const f = S.family; if (!f?.gistId || !S.sync?.token || !navigator.onLine) return;
+  const key = familyKey(live(), S.synonymsUpdatedAt, f.name);
+  if (!force && key === f.key) return;
+  try {
+    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || 'Andy'));
+    S.family = { ...f, key, publishedAt: Date.now(), error: '' };
+  } catch (e) { S.family = { ...f, error: e.message }; }
+  await saveFamily();
+}
+
+route(/^\/family$/, () => {
+  showBack('#/settings'); setTitle('Family and friends');
+  const f = S.family;
+  if (!S.sync?.token) {
+    view.innerHTML = `<div class="callout">The family link uses the same free GitHub storage as sync, so please <a href="#/sync">turn on sync</a> first.</div>`;
+    return;
+  }
+  if (!f?.gistId) {
+    view.innerHTML = `
+      <p>Give family and friends their own <b>view-only</b> copy of your recipe book. They can search, browse and share recipes, offline too, but can’t change anything. Whenever they’re online they get your latest edits and new recipes.</p>
+      <div class="callout">Anyone who has the link can view your recipes, so send it only to people you trust. You can replace the link at any time; the old one then stops getting updates.</div>
+      <label class="field"><span>Your name, as they’ll see it</span><input type="text" id="famName" value="Andy"></label>
+      <div class="btn-row"><button class="btn" id="famCreate">Create the family link</button></div>`;
+    $('#famCreate').onclick = async () => {
+      const b = $('#famCreate'); b.disabled = true; b.textContent = 'Creating…';
+      const name = $('#famName').value.trim() || 'Andy';
+      try {
+        const g = await createFamily(S.sync.token, familyPayload(S.recipes, S.synonyms, name));
+        S.family = { gistId: g.gistId, owner: g.owner, name, key: familyKey(live(), S.synonymsUpdatedAt, name), publishedAt: Date.now() };
+        await saveFamily(); scheduleSync(); render();
+      } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Create the family link'; }
+    };
+    return;
+  }
+  const link = familyLink(f.gistId);
+  const msg = `Here are my recipes. Open this link on your phone in Safari (or Chrome), then add it to your home screen so it works offline:\n${link}`;
+  view.innerHTML = `
+    <div class="callout">Sharing is <b>on</b>. Your changes reach family a few seconds after you save, whenever you’re online.${f.error ? `<br><span style="color:#c0392b">${h(f.error)}</span>` : ''}</div>
+    <label class="field"><span>Family link</span><input type="text" readonly value="${h(link)}" id="famLink"></label>
+    <div class="share-grid">
+      <a class="btn" style="background:#25d366;color:#fff" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">Send on WhatsApp</a>
+      <a class="btn" href="mailto:?subject=${encodeURIComponent('My recipe book')}&body=${encodeURIComponent(msg)}">Send by email</a>
+      <button class="btn secondary" id="famCopy">Copy link</button>
+      <button class="btn secondary" id="famPub">Update now</button>
+    </div>
+    <p class="hint">${f.publishedAt ? 'Last updated for family ' + h(new Date(f.publishedAt).toLocaleString()) : ''}</p>
+    <div class="settings-group">Stop sharing</div>
+    <div class="card"><ul class="list-plain">
+      <li><button class="row-link" id="famNew">Replace with a new link <small>old link stops updating</small></button></li>
+      <li><button class="row-link" id="famOff" style="color:#c0392b">Stop sharing completely</button></li>
+    </ul></div>
+    <p class="hint">People who already opened the old link keep the recipes they’d downloaded, but get no further updates.</p>`;
+  $('#famCopy').onclick = async () => { try { await navigator.clipboard.writeText(link); } catch { $('#famLink').select(); document.execCommand('copy'); } toast('Link copied'); };
+  $('#famPub').onclick = async () => { await publishFamily(true); toast(S.family.error || 'Family copy updated'); render(); };
+  const stop = async (again) => {
+    if (!confirm(again ? 'Make a new link? The current link will stop getting updates.' : 'Stop sharing? The link will stop getting updates.')) return;
+    try { await deleteFamily(S.sync.token, f.gistId); } catch (e) { toast(e.message); return; }
+    S.family = null; await saveFamily();
+    if (again) { go('#/family'); setTimeout(() => $('#famCreate')?.click(), 50); } else { toast('Sharing stopped'); render(); }
+  };
+  $('#famNew').onclick = () => stop(true);
+  $('#famOff').onclick = () => stop(false);
+});
+
+// ---------------- Family link (viewer side) ----------------
+async function refreshViewer(manual) {
+  if (!S.viewer || !navigator.onLine) { if (manual) toast('You’re offline. Showing the recipes you already have.'); return; }
+  try {
+    const data = await fetchFamily(S.viewer.gistId);
+    const incoming = data.recipes || [];
+    const keep = new Set(incoming.map(r => r.id));
+    for (const r of S.recipes) if (!keep.has(r.id)) await db.deleteRecipeHard(r.id);
+    await db.putRecipes(incoming);
+    S.recipes = incoming;
+    if (data.synonyms) S.synonyms = data.synonyms;
+    S.viewer = { ...S.viewer, ownerName: data.ownerName || S.viewer.ownerName, updatedAt: data.publishedAt || Date.now(), checkedAt: Date.now(), error: '' };
+    rebuild(); if (['/', '/settings'].includes(render.current) || render.current.startsWith('/r/')) render();
+    if (manual) toast('Up to date');
+  } catch (e) {
+    S.viewer = { ...S.viewer, error: e.message === 'gone' ? 'This link has been switched off. Ask for a new one.' : 'Couldn’t check for new recipes just now.' };
+    if (manual || !S.recipes.length) render();
+  }
+  await db.setSetting('viewer', S.viewer);
+}
+
+function viewerSettings() {
+  const v = S.viewer;
+  view.innerHTML = `
+    <div class="callout">This is <b>${h(OWNER())}’s recipe book</b>, view-only. New recipes and changes arrive automatically whenever you’re online.</div>
+    <p class="hint">${v.updatedAt ? 'Recipes last updated ' + h(new Date(v.updatedAt).toLocaleString()) : ''}${v.error ? `<br><span style="color:#c0392b">${h(v.error)}</span>` : ''}</p>
+    <div class="btn-row"><button class="btn" id="vRefresh">Check for new recipes</button></div>
+    <div class="settings-group">Using it offline</div>
+    <div class="card" style="padding:14px">
+      <p style="margin-top:0"><b>On iPhone:</b> in Safari, tap Share, then <b>Add to Home Screen</b>, and open it from the new icon.</p>
+      <p style="margin-bottom:0"><b>On Android:</b> in Chrome, tap ⋮ then <b>Add to Home screen</b>.</p>
+    </div>`;
+  $('#vRefresh').onclick = () => refreshViewer(true);
 }
 
 // ---------------- One-off updates to recipes already on the device ----------------
@@ -678,8 +807,44 @@ async function migrateLinks() {
 }
 
 // ---------------- Boot ----------------
+async function bootViewer() {
+  document.body.classList.add('viewer');
+  rebuild();
+  persist();
+  window.addEventListener('hashchange', render);
+  render();
+  const pill = $('#offlinePill');
+  const net = () => { pill.hidden = navigator.onLine; if (navigator.onLine) refreshViewer(false); };
+  window.addEventListener('online', net); window.addEventListener('offline', net); net();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshViewer(false); });
+  registerSW();
+}
+
+function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  // When a new version of the app arrives, switch to it straight away.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !S.reloading) { S.reloading = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js').catch(() => { });
+}
+
 async function boot() {
   S.recipes = await db.allRecipes();
+  S.viewer = (await db.getSetting('viewer')) || null;
+  S.family = (await db.getSetting('family')) || null;
+  const fParam = new URLSearchParams(location.search).get('f');
+  if (fParam && !S.viewer) {
+    if (S.recipes.length || await db.getSetting('sync')) {
+      // Andy's own device: don't replace his book with the family copy.
+      toast('This is the family link. It’s for other people’s devices, so nothing changed here.');
+    } else {
+      S.viewer = { gistId: fParam };
+      await db.setSetting('viewer', S.viewer);
+    }
+  } else if (fParam && S.viewer && S.viewer.gistId !== fParam) {
+    S.viewer = { gistId: fParam }; await db.setSetting('viewer', S.viewer);
+  }
+  if (V()) return bootViewer();
   const syn = await db.getSetting('synonyms');
   if (syn?.list) { S.synonyms = syn.list; S.synonymsUpdatedAt = syn.at || 0; }
   S.sync = (await db.getSetting('sync')) || null;
@@ -692,11 +857,6 @@ async function boot() {
   const net = () => { pill.hidden = navigator.onLine; if (navigator.onLine) doSync(false); };
   window.addEventListener('online', net); window.addEventListener('offline', net); net();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') doSync(false); });
-  if ('serviceWorker' in navigator) {
-    // When a new version of the app arrives, switch to it straight away.
-    const hadController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !S.reloading) { S.reloading = true; location.reload(); } });
-    navigator.serviceWorker.register('sw.js').catch(() => { });
-  }
+  registerSW();
 }
 boot();

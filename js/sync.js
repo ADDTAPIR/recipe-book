@@ -4,7 +4,7 @@ const API = 'https://api.github.com';
 const FILE = 'recipe-book.json';
 const DESC = 'Recipe Book sync data (used by the Recipe Book app)';
 
-async function gh(token, path, opts = {}) {
+export async function gh(token, path, opts = {}) {
   const res = await fetch(API + path, {
     ...opts,
     headers: {

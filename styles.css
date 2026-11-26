@@ -225,3 +225,14 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); ou
   body { padding: 0; background: #fff; color: #000; }
   .print-recipe { page-break-after: always; }
 }
+
+/* Tappable amounts and serves */
+.ing-list .qty button.amt, .serves button.amt { color: var(--text); background: none; border: 0; border-bottom: 1px dashed var(--line); border-radius: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; }
+.serves button.amt { color: var(--accent); font-weight: 600; }
+/* View-only family mode */
+body.viewer .tabbar a[data-tab="new"], body.viewer .tabbar a[data-tab="review"], body.viewer .tabbar a[data-tab="import"] { display: none; }
+/* Likes */
+.likes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 18px; }
+.likes .btn { padding: 7px 14px; font-size: 14px; }
+.likes .btn.on { background: var(--accent); color: var(--accent-ink); }
+.likes .who { font-size: 13px; color: var(--muted); width: 100%; }

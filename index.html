@@ -12,6 +12,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Recipes">
   <link rel="manifest" href="manifest.webmanifest">
+  <script>
+    // Family link: keep "?f=..." in the home-screen icon's address (iOS uses the page address when there is no manifest).
+    if (/[?&]f=/.test(location.search)) document.querySelector('link[rel=manifest]').remove();
+  </script>
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
