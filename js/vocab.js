@@ -1,5 +1,5 @@
 // Known ingredients, used to find ingredients mentioned inside free-text recipes
-// (many of Andy's Notes recipes are written as prose, not lists).
+// (many imported Notes recipes are written as prose, not lists).
 // Longer names are matched first, so "red chilli flakes" wins over "chilli".
 import { norm } from './text.js';
 

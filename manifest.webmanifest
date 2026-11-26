@@ -1,7 +1,7 @@
 {
   "name": "Recipe Book",
   "short_name": "Recipes",
-  "description": "Andy's recipes, searchable by ingredient, meal and course. Works offline.",
+  "description": "A recipe book you can search by ingredient, meal, course and cuisine. Works offline.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

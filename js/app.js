@@ -27,7 +27,7 @@ const S = {
 const $ = (sel, el = document) => el.querySelector(sel);
 const view = $('#view');
 const V = () => !!S.viewer; // view-only family mode
-const OWNER = () => (S.viewer?.ownerName || 'Andy');
+const OWNER = () => (S.viewer?.ownerName || 'the cook');
 
 function live() { return S.recipes.filter(r => !r.deleted); }
 function rebuild() { S.index = new SearchIndex(S.recipes, S.synonyms); updateBadge(); }
@@ -683,7 +683,7 @@ route(/^\/settings$/, () => {
     </div>
     <div class="settings-group">Danger zone</div>
     <div class="card"><ul class="list-plain"><li><button class="row-link" id="wipe" style="color:#c0392b">Remove all recipes from this device</button></li></ul></div>
-    <p class="hint" style="text-align:center;margin-top:20px">Recipe Book · made for Andy</p>`;
+    <p class="hint" style="text-align:center;margin-top:20px">Recipe Book</p>`;
   $('#exportJson').onclick = () => download(`recipe-book-backup-${new Date().toISOString().slice(0, 10)}.json`,
     JSON.stringify({ app: 'recipe-book', version: 1, savedAt: Date.now(), recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt }, null, 1), 'application/json');
   $('#exportTxt').onclick = () => download('recipes.txt', shareText(live().sort((a, b) => norm(a.title).localeCompare(norm(b.title)))).replace(/\*/g, ''), 'text/plain');
@@ -782,7 +782,7 @@ async function publishFamily(force) {
   const key = familyKey(live(), S.synonymsUpdatedAt, f.name + JSON.stringify(f.contact || {}));
   if (!force && key === f.key) return;
   try {
-    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || 'Andy', f.contact));
+    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || '', f.contact));
     S.family = { ...f, key, publishedAt: Date.now(), error: '' };
   } catch (e) { S.family = { ...f, error: e.message }; }
   await saveFamily();
@@ -799,11 +799,11 @@ route(/^\/family$/, () => {
     view.innerHTML = `
       <p>Give family and friends their own <b>view-only</b> copy of your recipe book. They can search, browse and share recipes, offline too, but can’t change anything. Whenever they’re online they get your latest edits and new recipes.</p>
       <div class="callout">Anyone who has the link can view your recipes, so send it only to people you trust. You can replace the link at any time; the old one then stops getting updates.</div>
-      <label class="field"><span>Your name, as they’ll see it</span><input type="text" id="famName" value="Andy"></label>
+      <label class="field"><span>Your name, as they’ll see it</span><input type="text" id="famName" value="" placeholder="e.g. your first name"></label>
       <div class="btn-row"><button class="btn" id="famCreate">Create the family link</button></div>`;
     $('#famCreate').onclick = async () => {
       const b = $('#famCreate'); b.disabled = true; b.textContent = 'Creating…';
-      const name = $('#famName').value.trim() || 'Andy';
+      const name = $('#famName').value.trim();
       try {
         const g = await createFamily(S.sync.token, familyPayload(S.recipes, S.synonyms, name));
         S.family = { gistId: g.gistId, owner: g.owner, name, key: familyKey(live(), S.synonymsUpdatedAt, name), publishedAt: Date.now() };
@@ -889,7 +889,7 @@ function viewerSettings() {
 
 // ---------------- Cuisine and missing tags ----------------
 // Adds a guessed cuisine to any recipe that has never had one, and fills in meal/course that are
-// still empty on recipes Andy hasn't reviewed. Never touches reviewed choices. Doesn't change
+// still empty on recipes the owner hasn't reviewed. Never touches reviewed choices. Doesn't change
 // updatedAt: every device works out the same answer, so nothing needs to sync.
 let tagFixes = null;
 async function fillTags(list = S.recipes) {
@@ -920,7 +920,7 @@ async function fillTags(list = S.recipes) {
 
 // ---------------- One-off updates to recipes already on the device ----------------
 // v1: add "see above / below" links to the recipes imported from Notes on 26 Nov 2026,
-// without touching anything Andy has reviewed or edited.
+// without touching anything the owner has reviewed or edited.
 async function migrateLinks() {
   if (!S.recipes.length || (await db.getSetting('migr-links-v1'))) return;
   try {
@@ -970,7 +970,7 @@ async function boot() {
   const fParam = new URLSearchParams(location.search).get('f');
   if (fParam && !S.viewer) {
     if (S.recipes.length || await db.getSetting('sync')) {
-      // Andy's own device: don't replace his book with the family copy.
+      // The owner's own device: don't replace their book with the family copy.
       toast('This is the family link. It’s for other people’s devices, so nothing changed here.');
     } else {
       S.viewer = { gistId: fParam };

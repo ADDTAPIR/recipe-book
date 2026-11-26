@@ -1,4 +1,4 @@
-// Sync between devices through one private ("secret") GitHub Gist in Andy's own account.
+// Sync between devices through one private ("secret") GitHub Gist in the owner's own account.
 // Each device keeps a full copy in IndexedDB; sync merges by id, newest edit wins.
 const API = 'https://api.github.com';
 const FILE = 'recipe-book.json';

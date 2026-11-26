@@ -1,4 +1,4 @@
-// View-only "family link": a second secret gist that only Andy's app writes to.
+// View-only "family link": a second secret gist that only the owner's app writes to.
 // Anyone with the link can read it (that's how secret gists work); nobody else can change it.
 import { gh } from './sync.js';
 
