@@ -27,7 +27,8 @@ const S = {
 const $ = (sel, el = document) => el.querySelector(sel);
 const view = $('#view');
 const V = () => !!S.viewer; // view-only family mode
-const OWNER = () => (S.viewer?.ownerName || 'the cook');
+// The family view never shows the owner's name (their choice), just "the cook".
+const OWNER = () => 'the cook';
 
 function live() { return S.recipes.filter(r => !r.deleted); }
 function rebuild() { S.index = new SearchIndex(S.recipes, S.synonyms); updateBadge(); }
@@ -141,7 +142,7 @@ const ICON = {
 
 // ---------------- Home / search ----------------
 route(/^\/$/, () => {
-  setTab('home'); setTitle(V() ? `${OWNER()}’s Recipes` : 'Recipes');
+  setTab('home'); setTitle(V() ? 'Family Recipes' : 'Recipes');
   topAction(S.selecting ? 'Done' : 'Select', () => { S.selecting = !S.selecting; if (!S.selecting) S.selected.clear(); render(); });
   const f = S.filters;
   const chip = (group, val, label) => `<button class="chip ${f[group] === val ? 'on' : ''}" data-g="${group}" data-v="${h(val)}">${h(label || val)}</button>`;
@@ -782,7 +783,7 @@ async function publishFamily(force) {
   const key = familyKey(live(), S.synonymsUpdatedAt, f.name + JSON.stringify(f.contact || {}));
   if (!force && key === f.key) return;
   try {
-    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, f.name || '', f.contact));
+    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, '', f.contact));
     S.family = { ...f, key, publishedAt: Date.now(), error: '' };
   } catch (e) { S.family = { ...f, error: e.message }; }
   await saveFamily();
@@ -799,11 +800,10 @@ route(/^\/family$/, () => {
     view.innerHTML = `
       <p>Give family and friends their own <b>view-only</b> copy of your recipe book. They can search, browse and share recipes, offline too, but can’t change anything. Whenever they’re online they get your latest edits and new recipes.</p>
       <div class="callout">Anyone who has the link can view your recipes, so send it only to people you trust. You can replace the link at any time; the old one then stops getting updates.</div>
-      <label class="field"><span>Your name, as they’ll see it</span><input type="text" id="famName" value="" placeholder="e.g. your first name"></label>
       <div class="btn-row"><button class="btn" id="famCreate">Create the family link</button></div>`;
     $('#famCreate').onclick = async () => {
       const b = $('#famCreate'); b.disabled = true; b.textContent = 'Creating…';
-      const name = $('#famName').value.trim();
+      const name = '';
       try {
         const g = await createFamily(S.sync.token, familyPayload(S.recipes, S.synonyms, name));
         S.family = { gistId: g.gistId, owner: g.owner, name, key: familyKey(live(), S.synonymsUpdatedAt, name), publishedAt: Date.now() };
@@ -876,7 +876,7 @@ async function refreshViewer(manual) {
 function viewerSettings() {
   const v = S.viewer;
   view.innerHTML = `
-    <div class="callout">This is <b>${h(OWNER())}’s recipe book</b>, view-only. New recipes and changes arrive automatically whenever you’re online.</div>
+    <div class="callout">This is a <b>view-only</b> recipe book. New recipes and changes arrive automatically whenever you’re online.</div>
     <p class="hint">${v.updatedAt ? 'Recipes last updated ' + h(new Date(v.updatedAt).toLocaleString()) : ''}${v.error ? `<br><span style="color:#c0392b">${h(v.error)}</span>` : ''}</p>
     <div class="btn-row"><button class="btn" id="vRefresh">Check for new recipes</button></div>
     <div class="settings-group">Using it offline</div>

@@ -16,7 +16,7 @@ export function familyPayload(recipes, synonyms, ownerName, contact) {
 
 export function familyKey(recipes, synonymsUpdatedAt, ownerName) {
   let max = 0; for (const r of recipes) if ((r.updatedAt || 0) > max) max = r.updatedAt;
-  return ['v2', recipes.length, max, synonymsUpdatedAt || 0, ownerName].join(':');
+  return ['v3', recipes.length, max, synonymsUpdatedAt || 0, ownerName].join(':');
 }
 
 export async function createFamily(token, payload) {
