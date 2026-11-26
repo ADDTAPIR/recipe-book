@@ -1,12 +1,12 @@
 // Offline support: keep a copy of the app on the device and serve it from there.
-const VERSION = 'rb-v6';
+const VERSION = 'rb-v7';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/text.js', 'js/parse.js', 'js/search.js', 'js/vocab.js', 'js/sync.js', 'js/links.js', 'js/family.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim()));
@@ -17,7 +17,7 @@ self.addEventListener('fetch', e => {
   // Serve from the device first (instant, works offline), refresh the copy in the background.
   e.respondWith(caches.open(VERSION).then(async cache => {
     const cached = await cache.match(e.request, { ignoreSearch: true });
-    const fresh = fetch(e.request).then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; }).catch(() => null);
+    const fresh = fetch(e.request, { cache: 'no-cache' }).then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; }).catch(() => null);
     if (cached) { e.waitUntil(fresh); return cached; }
     const res = await fresh;
     if (res) return res;
