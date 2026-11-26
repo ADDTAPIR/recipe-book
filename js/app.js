@@ -751,6 +751,7 @@ route(/^\/family$/, () => {
 // ---------------- Family link (viewer side) ----------------
 async function refreshViewer(manual) {
   if (!S.viewer || !navigator.onLine) { if (manual) toast('You’re offline. Showing the recipes you already have.'); return; }
+  if (!manual && S.recipes.length && Date.now() - (S.viewer.checkedAt || 0) < 10 * 60 * 1000) return; // GitHub allows 60 checks an hour
   try {
     const data = await fetchFamily(S.viewer.gistId);
     const incoming = data.recipes || [];
