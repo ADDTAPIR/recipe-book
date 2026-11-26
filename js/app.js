@@ -692,6 +692,11 @@ async function boot() {
   const net = () => { pill.hidden = navigator.onLine; if (navigator.onLine) doSync(false); };
   window.addEventListener('online', net); window.addEventListener('offline', net); net();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') doSync(false); });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+  if ('serviceWorker' in navigator) {
+    // When a new version of the app arrives, switch to it straight away.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !S.reloading) { S.reloading = true; location.reload(); } });
+    navigator.serviceWorker.register('sw.js').catch(() => { });
+  }
 }
 boot();
