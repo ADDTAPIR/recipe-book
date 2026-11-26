@@ -236,3 +236,6 @@ body.viewer .tabbar a[data-tab="new"], body.viewer .tabbar a[data-tab="review"],
 .likes .btn { padding: 7px 14px; font-size: 14px; }
 .likes .btn.on { background: var(--accent); color: var(--accent-ink); }
 .likes .who { font-size: 13px; color: var(--muted); width: 100%; }
+.toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 14px; }
+.toast-action { background: none; border: 0; color: var(--accent-soft); font-weight: 700; padding: 4px 2px; cursor: pointer; font-size: 14px; }
+.btn.danger-text { color: #c0392b; }

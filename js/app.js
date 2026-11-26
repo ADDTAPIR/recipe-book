@@ -42,9 +42,30 @@ async function saveRecipe(r, { touch = true } = {}) {
   scheduleSync();
 }
 
-function toast(msg) {
+function toast(msg, action) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2600);
+  t.classList.toggle('has-action', !!action);
+  if (action) {
+    const b = document.createElement('button'); b.className = 'toast-action'; b.textContent = action.label;
+    b.onclick = () => { t.classList.remove('show'); action.fn(); };
+    t.appendChild(b);
+  }
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), action ? 7000 : 2600);
+}
+
+// Deleting moves a recipe to "Recently deleted"; it can be restored from there (or with Undo).
+async function deleteRecipe(id) {
+  const r = byId(id); if (!r) return;
+  if (!confirm('Delete “' + r.title + '”?\n\nYou can restore it later from More › Recently deleted.')) return;
+  r.deleted = true; r.deletedAt = Date.now(); S.selected.delete(id);
+  await saveRecipe(r);
+  go('#/');
+  toast('Deleted “' + r.title + '”', { label: 'Undo', fn: () => restoreRecipe(id) });
+}
+async function restoreRecipe(id) {
+  const r = byId(id); if (!r) return;
+  r.deleted = false; delete r.deletedAt;
+  await saveRecipe(r); toast('Restored “' + r.title + '”'); render();
 }
 
 function updateBadge() {
@@ -96,7 +117,7 @@ async function render() {
   $('#topActions').innerHTML = '';
   $('#backBtn').hidden = true;
   document.querySelectorAll('.tabbar a').forEach(a => a.classList.remove('active'));
-  if (V() && /^\/(new|edit|import|review|sync|synonyms|family)/.test(hash)) { location.replace('#/'); return; }
+  if (V() && /^\/(new|edit|import|review|sync|synonyms|family|deleted)/.test(hash)) { location.replace('#/'); return; }
   for (const [re, fn] of routes) {
     const m = hash.match(re);
     if (m) { await fn(...m.slice(1)); break; }
@@ -270,9 +291,10 @@ route(/^\/r\/(.+)$/, id => {
     ${r.notes ? `<section class="section"><h3>Notes</h3><div class="method">${linkify(r, r.notes, findCues(r.method || '').length)}</div></section>` : ''}
     ${linksSection(r)}
     <div id="likes"></div>
-    <div class="btn-row compact"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button>${V() ? '' : `<a class="btn secondary" href="#/edit/${r.id}">Edit</a>`}</div>`;
+    <div class="btn-row compact"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button>${V() ? '' : `<a class="btn secondary" href="#/edit/${r.id}">Edit</a><button class="btn secondary danger-text" id="delBtn">Delete</button>`}</div>`;
   drawLikes(r);
   $('#shareBtn').onclick = () => openShare([r]);
+  const db2 = $('#delBtn'); if (db2) db2.onclick = () => deleteRecipe(r.id);
   const ok = $('#okCat'); if (ok) ok.onclick = async () => { r.reviewed = true; await saveRecipe(r); toast('Marked as reviewed'); render(); };
   const fx = $('#fixCat'); if (fx) fx.onclick = () => openCategorySheet(r);
   view.querySelectorAll('[data-addqty]').forEach(b => b.onclick = () => {
@@ -522,10 +544,7 @@ function editView(r, isNew) {
     await saveRecipe(r); toast('Saved');
     history.replaceState(null, '', '#/r/' + r.id); render();
   };
-  const del = $('#del'); if (del) del.onclick = async () => {
-    if (!confirm('Delete “' + r.title + '”?')) return;
-    const orig = byId(r.id); orig.deleted = true; await saveRecipe(orig); toast('Deleted'); go('#/');
-  };
+  const del = $('#del'); if (del) del.onclick = () => deleteRecipe(r.id);
 }
 
 // ---------------- Review ----------------
@@ -642,6 +661,7 @@ route(/^\/settings$/, () => {
       <li><a class="row-link" href="#/synonyms">Ingredient names that mean the same <small>${S.synonyms.length} groups ›</small></a></li>
       <li><a class="row-link" href="#/sync">Sync between phone and Mac <small>${h(syncLine)} ›</small></a></li>
       <li><a class="row-link" href="#/family">Share with family and friends <small>${S.family?.gistId ? 'On' : 'Off'} ›</small></a></li>
+      <li><a class="row-link" href="#/deleted">Recently deleted <small>${S.recipes.filter(r => r.deleted).length} ›</small></a></li>
       <li><button class="row-link" id="exportJson">Download a backup <small>${n} recipes</small></button></li>
       <li><button class="row-link" id="exportTxt">Export all as plain text <small>.txt</small></button></li>
       <li><a class="row-link" href="#/import">Import recipes or a backup <small>›</small></a></li>
@@ -670,6 +690,17 @@ function download(name, text, type) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+
+route(/^\/deleted$/, () => {
+  showBack('#/settings'); setTitle('Recently deleted');
+  const list = S.recipes.filter(r => r.deleted).sort((a, b) => (b.deletedAt || b.updatedAt || 0) - (a.deletedAt || a.updatedAt || 0));
+  view.innerHTML = list.length ? `<p class="hint">Deleted recipes are kept here so you can bring them back.</p>
+    <div class="card"><ul class="list-plain">${list.map(r => `<li style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;gap:10px">
+      <span>${h(r.title)}<br><small class="hint" style="margin:0">${r.deletedAt ? 'Deleted ' + h(new Date(r.deletedAt).toLocaleDateString()) : ''}</small></span>
+      <button class="btn secondary" data-restore="${r.id}" style="padding:7px 12px;font-size:14px">Restore</button></li>`).join('')}</ul></div>`
+    : '<div class="empty"><h2>Nothing here</h2><p>Recipes you delete appear here, so you can restore them.</p></div>';
+  view.querySelectorAll('[data-restore]').forEach(b => b.onclick = () => restoreRecipe(b.dataset.restore));
+});
 
 route(/^\/synonyms$/, () => {
   showBack('#/settings'); setTitle('Same ingredient, other names');
