@@ -1,26 +1,26 @@
 :root {
-  --bg: #faf6f1;
+  --bg: #f3f8fc;
   --surface: #ffffff;
-  --surface-2: #f3ece4;
-  --text: #2a211c;
-  --muted: #7a6b60;
-  --line: #e7ddd2;
-  --accent: #b4532a;
+  --surface-2: #e6f0f8;
+  --text: #1b2a38;
+  --muted: #5b7186;
+  --line: #d5e3ee;
+  --accent: #2a74b3;
   --accent-ink: #ffffff;
-  --accent-soft: #f6e2d6;
+  --accent-soft: #dcebf8;
   --good: #3f7d4e;
   --good-soft: #e1efe3;
   --warn: #a86a12;
   --warn-soft: #fbedd3;
-  --shadow: 0 1px 2px rgba(60, 40, 20, .06), 0 4px 14px rgba(60, 40, 20, .06);
+  --shadow: 0 1px 2px rgba(20, 60, 100, .06), 0 4px 14px rgba(20, 60, 100, .07);
   --radius: 14px;
   --tabbar-h: 58px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1714; --surface: #26201c; --surface-2: #312923; --text: #f2e9e1; --muted: #b3a296;
-    --line: #3d332c; --accent: #e07a4a; --accent-ink: #1c1714; --accent-soft: #4a2e20;
+    --bg: #0f1a24; --surface: #162432; --surface-2: #1e3142; --text: #e6f0f8; --muted: #9ab0c4;
+    --line: #26394b; --accent: #7cbcf0; --accent-ink: #0f1a24; --accent-soft: #1d3a55;
     --good: #7cc18c; --good-soft: #22352a; --warn: #e6b05a; --warn-soft: #3d2f17;
     --shadow: 0 1px 2px rgba(0,0,0,.3); color-scheme: dark;
   }
@@ -134,6 +134,19 @@ main { max-width: 760px; margin: 0 auto; padding: 12px 16px 24px; outline: none;
 .btn:disabled { opacity: .5; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
 .btn-row .btn { flex: 1; min-width: 130px; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn-row.compact { justify-content: flex-start; }
+.btn-row.compact .btn { flex: none; min-width: 0; padding: 7px 14px; font-size: 14px; }
+.btn-row.compact .btn svg { width: 16px; height: 16px; }
+.links { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.links a { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); text-decoration: none; color: var(--text); }
+.links a::before { content: "↪"; color: var(--accent); }
+.links small { color: var(--muted); margin-left: auto; }
+.method a.xref { font-weight: 600; }
+.link-edit { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.link-edit .chip { text-transform: none; }
+.link-add { display: flex; gap: 6px; }
+.link-add input { flex: 1; }
 
 /* Recipe view */
 .recipe-head h2 { font-family: ui-serif, "New York", Georgia, serif; font-size: 28px; margin: 6px 0 6px; }

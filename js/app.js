@@ -4,6 +4,7 @@ import { MEAL_TYPES, COURSES, splitRecipes, parseRecipe, parseIngredientLine, ne
 import { SearchIndex, DEFAULT_SYNONYMS } from './search.js';
 import { extractIngredients } from './vocab.js';
 import { syncNow } from './sync.js';
+import { autoLink, findCues } from './links.js';
 
 // ---------------- State ----------------
 const S = {
@@ -234,9 +235,10 @@ route(/^\/r\/(.+)$/, id => {
     ${r.ingredients.length ? `<section class="section"><h3>Ingredients</h3>
       ${fromText ? '<p class="hint" style="margin-top:-4px">Some of these were picked out of the recipe text. Tap “+ amount” to add a measurement.</p>' : ''}
       <ul class="ing-list">${ingHtml}</ul></section>` : ''}
-    ${r.method ? `<section class="section"><h3>${r.ingredients.some(i => !i.fromText) ? 'Method' : 'Recipe'}</h3><div class="method">${h(r.method)}</div></section>` : ''}
-    ${r.notes ? `<section class="section"><h3>Notes</h3><div class="method">${h(r.notes)}</div></section>` : ''}
-    <div class="btn-row"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button><a class="btn secondary" href="#/edit/${r.id}">Edit</a></div>`;
+    ${r.method ? `<section class="section"><h3>${r.ingredients.some(i => !i.fromText) ? 'Method' : 'Recipe'}</h3><div class="method">${linkify(r, r.method, 0)}</div></section>` : ''}
+    ${r.notes ? `<section class="section"><h3>Notes</h3><div class="method">${linkify(r, r.notes, findCues(r.method || '').length)}</div></section>` : ''}
+    ${linksSection(r)}
+    <div class="btn-row compact"><button class="btn secondary" id="shareBtn">${ICON.share} Share</button><a class="btn secondary" href="#/edit/${r.id}">Edit</a></div>`;
   $('#shareBtn').onclick = () => openShare([r]);
   const ok = $('#okCat'); if (ok) ok.onclick = async () => { r.reviewed = true; await saveRecipe(r); toast('Marked as reviewed'); render(); };
   const fx = $('#fixCat'); if (fx) fx.onclick = () => openCategorySheet(r);
@@ -256,6 +258,28 @@ route(/^\/r\/(.+)$/, id => {
     inp.addEventListener('blur', commit, { once: true });
   });
 });
+
+// ---------------- Links between recipes ----------------
+function linked(r) { return (r.links || []).map(l => ({ l, t: byId(l.id) })).filter(x => x.t && !x.t.deleted); }
+function linkify(r, text, offset) {
+  // Turn "(see above)" into a link to the recipe it refers to.
+  const cues = findCues(text);
+  const byCue = new Map(linked(r).filter(x => Number.isInteger(x.l.cueIndex)).map(x => [x.l.cueIndex - offset, x.t]));
+  let out = '', pos = 0;
+  cues.forEach((c, k) => {
+    const t = byCue.get(k); if (!t) return;
+    out += h(text.slice(pos, c.index)) + `(see <a class="xref" href="#/r/${t.id}">${h(t.title)}</a>)`;
+    pos = c.index + c.cue.length;
+  });
+  return out + h(text.slice(pos));
+}
+function linksSection(r) {
+  const out = linked(r);
+  const back = live().filter(x => x.id !== r.id && (x.links || []).some(l => l.id === r.id) && !out.some(o => o.t.id === x.id));
+  if (!out.length && !back.length) return '';
+  const li = (t, note) => `<li><a href="#/r/${t.id}">${h(t.title)}<small>${note}</small></a></li>`;
+  return `<section class="section"><h3>Linked recipes</h3><ul class="links">${out.map(x => li(x.t, '')).join('')}${back.map(t => li(t, 'refers to this')).join('')}</ul></section>`;
+}
 
 // ---------------- Sheets ----------------
 function openSheet(html, onMount) {
@@ -327,6 +351,10 @@ function editView(r, isNew) {
       <label class="field"><span>Method</span><textarea name="method" class="tall" placeholder="How to make it">${h(r.method)}</textarea></label>
       <button type="button" class="btn ghost" id="findIngs" style="padding-left:0">Find ingredients mentioned in the method</button>
       <label class="field"><span>Notes</span><textarea name="notes" placeholder="Tips, variations, wine pairing…">${h(r.notes)}</textarea></label>
+      <div class="field-label" style="margin-top:14px">Linked recipes</div>
+      <p class="hint">Link recipes this one refers to, like a sauce or side made separately.</p>
+      <div class="link-edit" id="linkChips"></div>
+      <div class="link-add"><input type="text" id="linkIn" list="titles" placeholder="Start typing a recipe name"><button type="button" class="btn secondary" id="linkAdd">Link</button></div>
       <label class="field"><span>Tags (comma separated)</span><input type="text" name="tags" value="${h((r.tags || []).join(', '))}" placeholder="e.g. vegetarian, party, quick"></label>
       <div class="btn-row"><button class="btn" type="submit">Save</button></div>
       ${isNew ? '' : '<div class="btn-row"><button type="button" class="btn danger" id="del">Delete this recipe</button></div>'}
@@ -352,6 +380,24 @@ function editView(r, isNew) {
     dl.innerHTML = ['g', 'kg', 'ml', 'l', 'tsp', 'tbsp', 'cup', 'cups', 'pinch', 'clove', 'cloves', 'bunch', 'handful', 'can', 'pack', 'slice', 'oz', 'lb'].map(u => `<option value="${u}">`).join('');
     document.body.appendChild(dl);
   }
+  let links = (r.links || []).filter(l => byId(l.id) && !byId(l.id).deleted && l.id !== r.id);
+  const drawLinks = () => {
+    $('#linkChips').innerHTML = links.map((l, k) => `<span class="chip on">${h(byId(l.id).title)} <b data-unlink="${k}" style="cursor:pointer;margin-left:4px">×</b></span>`).join('') || '<span class="hint" style="margin:0">None yet</span>';
+    $('#linkChips').querySelectorAll('[data-unlink]').forEach(b => b.onclick = () => { links.splice(+b.dataset.unlink, 1); drawLinks(); });
+  };
+  drawLinks();
+  let dl = document.getElementById('titles'); if (!dl) { dl = document.createElement('datalist'); dl.id = 'titles'; document.body.appendChild(dl); }
+  dl.innerHTML = live().filter(x => x.id !== r.id).sort((a, b) => norm(a.title).localeCompare(norm(b.title))).map(x => `<option value="${h(x.title)}">`).join('');
+  const addLink = () => {
+    const v = norm($('#linkIn').value); if (!v) return;
+    const cands = live().filter(x => x.id !== r.id);
+    const t = cands.find(x => norm(x.title) === v) || (S.index.search($('#linkIn').value).results.find(x => x.r.id !== r.id) || {}).r;
+    if (!t) { toast('No recipe found with that name'); return; }
+    if (!links.some(l => l.id === t.id)) links.push({ id: t.id });
+    $('#linkIn').value = ''; drawLinks(); toast('Linked to ' + t.title);
+  };
+  $('#linkAdd').onclick = addLink;
+  $('#linkIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addLink(); } });
   $('#addIng').onclick = () => row().querySelector('.n').focus();
   $('#pasteIngs').onclick = () => openSheet(`<h2>Paste ingredients</h2><p class="hint">One per line, like “2 tbsp olive oil” or “parsley (or coriander), optional”.</p>
     <textarea id="pasteTa" class="tall"></textarea><div class="btn-row"><button class="btn block" id="pasteGo">Add these</button></div>`, sh => {
@@ -376,6 +422,7 @@ function editView(r, isNew) {
     r.method = f.method.value.trim();
     r.notes = f.notes.value.trim();
     r.tags = f.tags.value.split(',').map(s => s.trim()).filter(Boolean);
+    r.links = links;
     r.courses = [...view.querySelectorAll('[data-k=courses].on')].map(b => b.dataset.c);
     r.mealTypes = [...view.querySelectorAll('[data-k=mealTypes].on')].map(b => b.dataset.c);
     r.ingredients = [...ings.children].map(d => ({
@@ -473,6 +520,7 @@ function drawImportPreview() {
     const rs = d.filter(x => x.keep).map(x => { const r = x.r; delete r.source; r.updatedAt = Date.now(); return r; });
     // Prose-only recipes: also pick ingredients out of the text so ingredient search works.
     rs.forEach(addTextIngredients);
+    autoLink(rs);
     await db.putRecipes(rs); S.recipes.push(...rs); rebuild(); scheduleSync();
     S.importDraft = null; toast(`Imported ${rs.length}`); go('#/review');
   };
@@ -499,7 +547,7 @@ async function importBackup(text) {
     else if ((r.updatedAt || 0) > (cur.updatedAt || 0)) { Object.assign(cur, r); updated++; }
   }
   if (data.synonyms && (data.synonymsUpdatedAt || 0) > S.synonymsUpdatedAt) { S.synonyms = data.synonyms; S.synonymsUpdatedAt = data.synonymsUpdatedAt; await db.setSetting('synonyms', { list: S.synonyms, at: S.synonymsUpdatedAt }); }
-  await db.putRecipes(S.recipes); rebuild(); scheduleSync();
+  await db.putRecipes(S.recipes); await migrateLinks(); rebuild(); scheduleSync();
   toast(`Loaded: ${added} new, ${updated} updated`); go('#/');
 }
 
@@ -606,12 +654,36 @@ async function doSync(manual) {
   }
 }
 
+// ---------------- One-off updates to recipes already on the device ----------------
+// v1: add "see above / below" links to the recipes imported from Notes on 26 Nov 2026,
+// without touching anything Andy has reviewed or edited.
+async function migrateLinks() {
+  if (!S.recipes.length || (await db.getSetting('migr-links-v1'))) return;
+  try {
+    const res = await fetch('data/links-v1.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const pairs = await res.json();
+    const changed = [];
+    for (const [from, to, cueIndex] of pairs) {
+      const r = byId(from); if (!r || !byId(to)) continue;
+      r.links = r.links || [];
+      if (r.links.some(l => l.id === to)) continue;
+      r.links.push({ id: to, cueIndex, auto: true });
+      r.updatedAt = Date.now();
+      if (!changed.includes(r)) changed.push(r);
+    }
+    if (changed.length) { await db.putRecipes(changed); scheduleSync(); }
+    await db.setSetting('migr-links-v1', true);
+  } catch { /* offline: try again next time */ }
+}
+
 // ---------------- Boot ----------------
 async function boot() {
   S.recipes = await db.allRecipes();
   const syn = await db.getSetting('synonyms');
   if (syn?.list) { S.synonyms = syn.list; S.synonymsUpdatedAt = syn.at || 0; }
   S.sync = (await db.getSetting('sync')) || null;
+  await migrateLinks();
   rebuild();
   persist();
   window.addEventListener('hashchange', render);

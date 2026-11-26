@@ -1,8 +1,8 @@
 // Offline support: keep a copy of the app on the device and serve it from there.
-const VERSION = 'rb-v1';
+const VERSION = 'rb-v2';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/db.js', 'js/text.js', 'js/parse.js', 'js/search.js', 'js/vocab.js', 'js/sync.js',
+  'js/app.js', 'js/db.js', 'js/text.js', 'js/parse.js', 'js/search.js', 'js/vocab.js', 'js/sync.js', 'js/links.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 self.addEventListener('install', e => {

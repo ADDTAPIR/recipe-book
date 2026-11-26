@@ -209,7 +209,7 @@ export class SearchIndex {
       const extra = d.ings.length ? (d.ings.length - hitIngs.size) / d.ings.length : 0;
       results.push({ r, score: coverage * 10 + score / terms.length * 2 - extra * 0.5 + (r.favourite ? 0.1 : 0), matched, missing, hitIngs });
     }
-    if (!terms.length) results.sort((a, b) => a.r.title.localeCompare(b.r.title));
+    if (!terms.length) results.sort((a, b) => norm(a.r.title).localeCompare(norm(b.r.title)));
     else results.sort((a, b) => b.score - a.score);
     return { terms: terms.map(t => t.join(' ')), results };
   }
