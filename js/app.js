@@ -177,27 +177,46 @@ function drawResults() {
   let head = '';
   if (res.terms.length > 1) head = full ? `${full} with all ${res.terms.length}, then closest matches` : `No recipe has all ${res.terms.length}. Closest matches:`;
   else head = `${n} recipe${n === 1 ? '' : 's'}`;
+  const key = JSON.stringify([S.query, S.filters]);
+  if (key !== S.listKey) { S.listKey = key; S.shown = 0; }
+  const BATCH = 60;
+  let shown = Math.max(BATCH, S.shown || 0);
+  const card = x => {
+    const r = x.r;
+    const multi = res.terms.length > 1;
+    const match = multi ? (x.missing.length
+      ? `<div class="match part">Has ${x.matched.length} of ${res.terms.length} · missing ${h(x.missing.join(', '))}${inText(x)}</div>`
+      : `<div class="match full">Has all ${res.terms.length}${inText(x)}</div>`) : '';
+    const sel = S.selected.has(r.id);
+    return `<li class="card ${sel ? 'selected' : ''}"><a class="result" href="#/r/${r.id}" data-id="${r.id}">
+      ${S.selecting ? '<span class="select-box"></span>' : ''}
+      <div class="body"><h3>${r.favourite ? '<span class="fav">★</span> ' : ''}${h(r.title)}</h3>
+      <div>${catTags(r)}${r.reviewed || V() ? '' : '<span class="tag warn">not reviewed</span>'}</div>
+      <div class="ings">${highlightIngs(r, x.hitIngs)}</div>${match}</div></a></li>`;
+  };
   el.innerHTML = `<div class="count"><span>${h(head)}</span>${S.selecting ? `<button class="btn ghost" id="selAll" style="padding:4px 0">Select all</button>` : ''}</div>
-    <ul class="results">${res.results.slice(0, 200).map(x => {
-      const r = x.r;
-      const multi = res.terms.length > 1;
-      const match = multi ? (x.missing.length
-        ? `<div class="match part">Has ${x.matched.length} of ${res.terms.length} · missing ${h(x.missing.join(', '))}${inText(x)}</div>`
-        : `<div class="match full">Has all ${res.terms.length}${inText(x)}</div>`) : '';
-      const sel = S.selected.has(r.id);
-      return `<li class="card ${sel ? 'selected' : ''}"><a class="result" href="#/r/${r.id}" data-id="${r.id}">
-        ${S.selecting ? '<span class="select-box"></span>' : ''}
-        <div class="body"><h3>${r.favourite ? '<span class="fav">★</span> ' : ''}${h(r.title)}</h3>
-        <div>${catTags(r)}${r.reviewed || V() ? '' : '<span class="tag warn">not reviewed</span>'}</div>
-        <div class="ings">${highlightIngs(r, x.hitIngs)}</div>${match}</div></a></li>`;
-    }).join('')}</ul>${n > 200 ? '<p class="hint">Showing the first 200. Narrow your search to see more.</p>' : ''}
+    <ul class="results" id="resList">${res.results.slice(0, shown).map(card).join('')}</ul><div id="more" style="height:1px"></div>
     ${!n ? '<div class="empty"><p>Nothing found. Try fewer words, or clear the filters.</p></div>' : ''}`;
+  S.shown = shown;
+  // Show the whole list, adding more cards as you scroll down (keeps phones smooth).
+  const list = $('#resList');
+  const more = () => {
+    if (shown >= n) return;
+    list.insertAdjacentHTML('beforeend', res.results.slice(shown, shown + BATCH).map(card).join(''));
+    shown += BATCH; S.shown = shown;
+  };
+  if (drawResults.obs) drawResults.obs.disconnect();
+  if ('IntersectionObserver' in window) {
+    drawResults.obs = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) more(); }, { rootMargin: '800px' });
+    drawResults.obs.observe($('#more'));
+  } else { shown = n; list.innerHTML = res.results.map(card).join(''); }
   if (S.selecting) {
-    el.querySelectorAll('a.result').forEach(a => a.onclick = e => {
+    list.onclick = e => {
+      const a = e.target.closest('a.result'); if (!a) return;
       e.preventDefault(); const id = a.dataset.id;
       S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id);
       a.parentElement.classList.toggle('selected'); drawSelectBar();
-    });
+    };
     const sa = $('#selAll'); if (sa) sa.onclick = () => { res.results.forEach(x => S.selected.add(x.r.id)); drawResults(); };
   }
   drawSelectBar();
