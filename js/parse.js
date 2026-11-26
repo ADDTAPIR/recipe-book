@@ -90,7 +90,7 @@ function looksLikeIngredient(line) {
 export function splitRecipes(text) {
   const t = text.replace(/\r\n?/g, '\n');
   // Explicit separators win.
-  let blocks = t.split(/\n\s*(?:-{3,}|\*{3,}|_{3,}|={3,}|#{3,}|~{3,})\s*\n/);
+  let blocks = t.split(/\n\s*(?:-{3,}|—{3,}|–{3,}|\*{3,}|_{3,}|={3,}|#{3,}|~{3,})\s*\n/);
   if (blocks.length === 1) blocks = t.split(/\n\s*\n\s*\n+/); // two or more blank lines
   if (blocks.length === 1) {
     // Fall back: start a new recipe at the title line before each "Ingredients" heading.
