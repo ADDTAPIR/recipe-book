@@ -1,6 +1,6 @@
 import { db, persist } from './db.js';
 import { escapeHtml as h, norm, uid } from './text.js';
-import { MEAL_TYPES, COURSES, splitRecipes, parseRecipe, parseIngredientLine, newRecipe, categorize } from './parse.js';
+import { MEAL_TYPES, COURSES, CUISINES, splitRecipes, parseRecipe, parseIngredientLine, newRecipe, categorize, guessCuisines } from './parse.js';
 import { SearchIndex, DEFAULT_SYNONYMS } from './search.js';
 import { extractIngredients } from './vocab.js';
 import { syncNow } from './sync.js';
@@ -14,7 +14,7 @@ const S = {
   synonymsUpdatedAt: 0,
   index: null,
   query: '',
-  filters: { mealType: '', course: '', favourite: false, needsReview: false, needsAmounts: false },
+  filters: { mealType: '', course: '', cuisine: '', favourite: false, needsReview: false, needsAmounts: false },
   selecting: false,
   selected: new Set(),
   lastSearch: null,
@@ -100,7 +100,8 @@ function shareText(recipes) {
 
 function catTags(r) {
   return (r.courses || []).map(c => `<span class="tag course">${h(c)}</span>`).join('') +
-    (r.mealTypes || []).map(c => `<span class="tag">${h(c)}</span>`).join('');
+    (r.mealTypes || []).map(c => `<span class="tag">${h(c)}</span>`).join('') +
+    (r.cuisines || []).map(c => `<span class="tag cuisine">${h(c)}</span>`).join('');
 }
 
 // ---------------- Router ----------------
@@ -157,6 +158,8 @@ route(/^\/$/, () => {
     <div class="chips">${chip('course', '', 'All')}${used('courses', COURSES).map(c => chip('course', c)).join('')}</div>
     <div class="chip-label">Meal</div>
     <div class="chips">${chip('mealType', '', 'All')}${used('mealTypes', MEAL_TYPES).map(c => chip('mealType', c)).join('')}</div>
+    <div class="chip-label">Cuisine</div>
+    <div class="chips">${chip('cuisine', '', 'All')}${CUISINES.map(c => chip('cuisine', c)).join('')}</div>
     ${V() ? '' : `<div class="chips">${toggle('favourite', '★ Favourites')}${toggle('needsReview', 'Not yet reviewed')}${toggle('needsAmounts', 'Missing amounts')}</div>`}
     <div id="results"></div>`;
   const q = $('#q');
@@ -282,7 +285,7 @@ route(/^\/r\/(.+)$/, id => {
       <div>${catTags(r)}${(r.tags || []).map(t => `<span class="tag">${h(t)}</span>`).join('')}</div>
       ${V() ? (r.serves ? `<div class="meta">Serves ${h(r.serves)}</div>` : '') : `<div class="meta serves">Serves <button class="amt" id="servesBtn">${r.serves ? h(r.serves) : '+ add'}</button></div>`}
       ${r.description ? `<p class="desc">${h(r.description)}</p>` : ''}
-      ${r.reviewed || V() ? '' : `<div class="review-banner"><span>Sorted automatically. Is the course and meal right?</span><span style="display:flex;gap:6px"><button class="btn secondary" id="fixCat">Change</button><button class="btn good" id="okCat">Yes</button></span></div>`}
+      ${r.reviewed || V() ? '' : `<div class="review-banner"><span>Sorted automatically. Are the course, meal and cuisine right?</span><span style="display:flex;gap:6px"><button class="btn secondary" id="fixCat">Change</button><button class="btn good" id="okCat">Yes</button></span></div>`}
     </article>
     ${r.ingredients.length ? `<section class="section"><h3>Ingredients</h3>
       ${fromText && !V() ? '<p class="hint" style="margin-top:-4px">Some of these were picked out of the recipe text. Tap “+ amount” to add a measurement, or tap an amount to change it.</p>' : ''}
@@ -395,11 +398,13 @@ function openCategorySheet(r, after) {
   openSheet(`<h2>${h(r.title)}</h2>
     <div class="chip-label">Course</div><div class="chips wrap">${chips(COURSES, 'courses')}</div>
     <div class="chip-label">Meal</div><div class="chips wrap">${chips(MEAL_TYPES, 'mealTypes')}</div>
+    <div class="chip-label">Cuisine</div><div class="chips wrap">${chips(CUISINES, 'cuisines')}</div>
     <div class="btn-row"><button class="btn block" id="catSave">Save</button></div>`, sh => {
     sh.querySelectorAll('[data-k]').forEach(b => b.onclick = () => b.classList.toggle('on'));
     $('#catSave', sh).onclick = async () => {
       r.courses = [...sh.querySelectorAll('[data-k=courses].on')].map(b => b.dataset.c);
       r.mealTypes = [...sh.querySelectorAll('[data-k=mealTypes].on')].map(b => b.dataset.c);
+      r.cuisines = [...sh.querySelectorAll('[data-k=cuisines].on')].map(b => b.dataset.c);
       r.reviewed = true; await saveRecipe(r); closeSheet(); toast('Saved'); after ? after() : render();
     };
   });
@@ -442,7 +447,8 @@ function editView(r, isNew) {
       <label class="field"><span>Name</span><input type="text" name="title" value="${h(r.title)}" required placeholder="e.g. Spaghetti with sausage and parsley"></label>
       <div class="field-label">Course</div><div class="chips wrap" id="cCourses">${chips(COURSES, 'courses')}</div>
       <div class="field-label" style="margin-top:8px">Meal</div><div class="chips wrap" id="cMeals">${chips(MEAL_TYPES, 'mealTypes')}</div>
-      ${isNew ? '<button type="button" class="btn ghost" id="autoCat" style="padding-left:0">Suggest course and meal for me</button>' : ''}
+      <div class="field-label" style="margin-top:8px">Cuisine</div><div class="chips wrap" id="cCuis">${chips(CUISINES, 'cuisines')}</div>
+      <button type="button" class="btn ghost" id="autoCat" style="padding-left:0">Suggest course, meal and cuisine for me</button>
       <label class="field"><span>Serves</span><input type="text" name="serves" value="${h(r.serves)}" placeholder="e.g. 4" inputmode="text"></label>
       <div class="field-label">Ingredients</div>
       <p class="hint">Amounts are optional. Tick “optional” for extras, and put swaps in “or”.</p>
@@ -525,6 +531,7 @@ function editView(r, isNew) {
     r.links = links;
     r.courses = [...view.querySelectorAll('[data-k=courses].on')].map(b => b.dataset.c);
     r.mealTypes = [...view.querySelectorAll('[data-k=mealTypes].on')].map(b => b.dataset.c);
+    r.cuisines = [...view.querySelectorAll('[data-k=cuisines].on')].map(b => b.dataset.c);
     r.ingredients = [...ings.children].map(d => ({
       qty: d.querySelector('.q').value.trim(), unit: d.querySelector('.u').value.trim(), name: d.querySelector('.n').value.trim(),
       alternatives: d.querySelector('.a').value.split(/\s*\/\s*|\s*,\s*|\s+or\s+/).map(s => s.trim()).filter(Boolean),
@@ -533,8 +540,8 @@ function editView(r, isNew) {
     })).filter(i => i.name);
   };
   const ac = $('#autoCat'); if (ac) ac.onclick = () => {
-    collect(); const c = categorize(r);
-    view.querySelectorAll('[data-k]').forEach(b => b.classList.toggle('on', (b.dataset.k === 'courses' ? c.courses : c.mealTypes).includes(b.dataset.c)));
+    collect(); const c = { ...categorize(r), cuisines: guessCuisines(r) };
+    view.querySelectorAll('[data-k]').forEach(b => b.classList.toggle('on', (c[b.dataset.k] || []).includes(b.dataset.c)));
     toast(c.courses.length || c.mealTypes.length ? 'Suggested. Adjust if needed.' : 'No suggestion; please pick.');
   };
   $('#ef').onsubmit = async e => {
@@ -553,12 +560,13 @@ route(/^\/review$/, () => {
   const list = live().filter(r => !r.reviewed).sort((a, b) => norm(a.title).localeCompare(norm(b.title)));
   if (!list.length) { view.innerHTML = `<div class="empty"><h2>All reviewed</h2><p>Every recipe has had its course and meal checked.</p></div>`; return; }
   const chips = (r, list2, key) => list2.map(c => `<button class="chip small ${(r[key] || []).includes(c) ? 'on' : ''}" data-id="${r.id}" data-k="${key}" data-c="${c}">${c}</button>`).join('');
-  view.innerHTML = `<p class="hint">These were sorted automatically. Tap to change the course and meal, then tick. ${list.length} to go.</p>
+  view.innerHTML = `<p class="hint">These were sorted automatically. Tap to change the course, meal and cuisine, then tick. ${list.length} to go.</p>
     <ul class="results">${list.slice(0, 30).map(r => `<li class="card import-item" data-card="${r.id}">
       <h3 style="justify-content:space-between"><a href="#/r/${r.id}" style="color:inherit;text-decoration:none">${h(r.title)}</a></h3>
       <div class="sub">${h(r.ingredients.slice(0, 8).map(i => i.name).join(', '))}</div>
       <div class="chips wrap">${chips(r, COURSES, 'courses')}</div>
       <div class="chips wrap">${chips(r, MEAL_TYPES, 'mealTypes')}</div>
+      <div class="chips wrap">${chips(r, CUISINES, 'cuisines')}</div>
       <button class="btn good block" data-ok="${r.id}">Looks right ✓</button></li>`).join('')}</ul>
     ${list.length > 30 ? `<p class="hint">Showing 30 at a time.</p>` : ''}
     <div class="btn-row"><button class="btn secondary" id="okAll">Mark all ${Math.min(30, list.length)} shown as right</button></div>`;
@@ -617,6 +625,7 @@ function drawImportPreview() {
     const rs = d.filter(x => x.keep).map(x => { const r = x.r; delete r.source; r.updatedAt = Date.now(); return r; });
     // Prose-only recipes: also pick ingredients out of the text so ingredient search works.
     rs.forEach(addTextIngredients);
+    rs.forEach(r => { r.cuisines = guessCuisines(r); });
     autoLink(rs);
     await db.putRecipes(rs); S.recipes.push(...rs); rebuild(); scheduleSync();
     S.importDraft = null; toast(`Imported ${rs.length}`); go('#/review');
@@ -644,7 +653,7 @@ async function importBackup(text) {
     else if ((r.updatedAt || 0) > (cur.updatedAt || 0)) { Object.assign(cur, r); updated++; }
   }
   if (data.synonyms && (data.synonymsUpdatedAt || 0) > S.synonymsUpdatedAt) { S.synonyms = data.synonyms; S.synonymsUpdatedAt = data.synonymsUpdatedAt; await db.setSetting('synonyms', { list: S.synonyms, at: S.synonymsUpdatedAt }); }
-  await db.putRecipes(S.recipes); await migrateLinks(); rebuild(); scheduleSync();
+  await db.putRecipes(S.recipes); await migrateLinks(); await fillTags(); rebuild(); scheduleSync();
   toast(`Loaded: ${added} new, ${updated} updated`); go('#/');
 }
 
@@ -751,7 +760,7 @@ async function doSync(manual) {
   try {
     const res = await syncNow({ token: S.sync.token, gistId: S.sync.gistId, recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt });
     S.sync = { ...S.sync, gistId: res.gistId, lastSync: Date.now(), error: '' };
-    if (res.changedLocal) { S.recipes = res.recipes; await db.putRecipes(S.recipes); }
+    if (res.changedLocal) { S.recipes = res.recipes; await db.putRecipes(S.recipes); await fillTags(); }
     if (res.synonyms && res.synonymsUpdatedAt > S.synonymsUpdatedAt) { S.synonyms = res.synonyms; S.synonymsUpdatedAt = res.synonymsUpdatedAt; await db.setSetting('synonyms', { list: S.synonyms, at: S.synonymsUpdatedAt }); }
     rebuild();
     if (res.changedLocal && (render.current === '/' || render.current === '/review')) render();
@@ -878,6 +887,37 @@ function viewerSettings() {
   $('#vRefresh').onclick = () => refreshViewer(true);
 }
 
+// ---------------- Cuisine and missing tags ----------------
+// Adds a guessed cuisine to any recipe that has never had one, and fills in meal/course that are
+// still empty on recipes Andy hasn't reviewed. Never touches reviewed choices. Doesn't change
+// updatedAt: every device works out the same answer, so nothing needs to sync.
+let tagFixes = null;
+async function fillTags(list = S.recipes) {
+  if (V()) return 0;
+  if (!tagFixes) { try { tagFixes = await (await fetch('data/tags-v1.json')).json(); } catch { tagFixes = {}; } }
+  const changed = [];
+  for (const r of list) {
+    let ch = false;
+    if (!Array.isArray(r.cuisines)) { r.cuisines = guessCuisines(r); ch = true; }
+    if (!r.reviewed && !r.tagsFilled) {
+      const fix = tagFixes[r.id];
+      if (fix) {
+        if (!(r.courses || []).length && fix.courses) r.courses = fix.courses;
+        if (!(r.mealTypes || []).length && fix.mealTypes) r.mealTypes = fix.mealTypes;
+        if (fix.courses && fix.courses[0] === 'main' && (r.courses || []).join() === 'side') r.courses = fix.courses;
+      }
+      if (!(r.mealTypes || []).length && (r.courses || []).length) {
+        r.mealTypes = (r.courses || []).some(c => ['side', 'bread', 'salad', 'soup'].includes(c)) ? ['lunch', 'dinner'] : ['dinner'];
+      }
+      if (!(r.courses || []).length && (r.mealTypes || []).some(m => ['breakfast', 'brunch', 'lunch', 'dinner'].includes(m))) r.courses = ['main'];
+      r.tagsFilled = 1; ch = true;
+    }
+    if (ch) changed.push(r);
+  }
+  if (changed.length) await db.putRecipes(changed);
+  return changed.length;
+}
+
 // ---------------- One-off updates to recipes already on the device ----------------
 // v1: add "see above / below" links to the recipes imported from Notes on 26 Nov 2026,
 // without touching anything Andy has reviewed or edited.
@@ -944,6 +984,7 @@ async function boot() {
   if (syn?.list) { S.synonyms = syn.list; S.synonymsUpdatedAt = syn.at || 0; }
   S.sync = (await db.getSetting('sync')) || null;
   await migrateLinks();
+  await fillTags();
   rebuild();
   persist();
   window.addEventListener('hashchange', render);

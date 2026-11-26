@@ -1,9 +1,9 @@
 // Offline support: keep a copy of the app on the device and serve it from there.
-const VERSION = 'rb-v9';
+const VERSION = 'rb-v10';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/text.js', 'js/parse.js', 'js/search.js', 'js/vocab.js', 'js/sync.js', 'js/links.js', 'js/family.js',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'data/tags-v1.json',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));

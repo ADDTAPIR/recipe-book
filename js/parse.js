@@ -260,3 +260,62 @@ export function categorize(recipe) {
   if (pickedM.includes('breakfast') || pickedM.includes('brunch')) { if (pickedC.includes('side')) pickedC.splice(pickedC.indexOf('side'), 1, 'main'); }
   return { mealTypes: pickedM, courses: pickedC };
 }
+
+// ---------- Cuisine ----------
+export const CUISINES = ['Indian', 'Japanese', 'Chinese', 'Thai', 'Mediterranean', 'French', 'Italian', 'Continental', 'American', 'Spanish', 'Middle Eastern', 'Asian', 'European'];
+// Title words count 3, ingredients and method count 1 (each keyword once).
+const CUISINE_RULES = {
+  'Indian': ['indian', 'india', 'bengali', 'gujarati', 'maharashtrian', 'kolkata', 'baroda', 'mughlai', 'moglai', 'kheema', 'keema', 'biryani', 'paratha', 'naan', 'roti', 'chapati', 'dosa', 'idli', 'daal', 'dal', 'dhal', 'masala', 'tikka', 'korma', 'curry', 'paneer', 'payesh', 'kheer', 'halva', 'halwa', 'samosa', 'pakora', 'bhaji', 'bharta', 'bhurji', 'anda', 'khichdi', 'handvo', 'khaman', 'khandvi', 'poha', 'sabudana', 'lassi', 'raita', 'chutney', 'hariyali', 'nalli', 'karela', 'chingri', 'maach', 'sorse', 'kalia', 'aalu', 'aloo', 'gobi', 'sambar', 'garam masala', 'curry leaves', 'turmeric', 'ghee', 'asafoetida', 'hing', 'urad dal', 'chana dal', 'toor dal', 'mustard oil', 'kashmiri', 'aamchur', 'amchur', 'besan', 'chaat masala', 'panch phoron', 'nigella seeds', 'cardamom'],
+  'Japanese': ['japanese', 'japan', 'sushi', 'donburi', 'okonomiyaki', 'teriyaki', 'miso', 'mirin', 'wasabi', 'nori', 'dashi', 'bonito', 'shiso', 'shisho', 'sake', 'yuzu', 'panko', 'tempura', 'ramen', 'udon', 'soba', 'hokkaido', 'sashimi', 'tamagoyaki'],
+  'Chinese': ['chinese', 'china', 'sichuan', 'szechuan', 'kung pao', 'char siu', 'chinatown', 'bak choy', 'bok choy', 'pak choi', 'hoisin', 'oyster sauce', 'five spice', '5 spice', '5-spice', 'shaoxing', 'star anise', 'sichuan pepper', 'szechuan pepper', 'scallion pancake', 'fried rice', 'black bean sauce', 'doubanjiang', 'dark soy'],
+  'Thai': ['thai', 'thailand', 'pad thai', 'larb', 'tom yum', 'green papaya', 'papaya salad', 'fish sauce', 'lemongrass', 'kaffir', 'lime leaves', 'galangal', 'thai basil', 'green curry', 'red curry paste', 'sweet chilli sauce'],
+  'Mediterranean': ['mediterranean', 'greek', 'feta', 'haloumi', 'halloumi', 'olive', 'olives', 'tapenade', 'tzatziki', 'farinata', 'oregano', 'sun dried tomatoes'],
+  'French': ['french', 'france', 'provencal', 'bourguignon', 'gratin', 'souffle', 'soufflé', 'creme brulee', 'crème brûlée', 'brulee', 'foie gras', 'fois gras', 'duxelles', 'wellington', 'bisque', 'veloute', 'consomme', 'bouillon', 'gruyere', 'comte', 'brie', 'camembert', 'creme fraiche', 'crème fraîche', 'tarragon', 'dijon', 'shallots', 'entrecote', 'entrecôte', 'mousse', 'puree', 'purée', 'confit', 'croque'],
+  'Italian': ['italian', 'italia', 'italy', 'pasta', 'spaghetti', 'linguine', 'linguini', 'penne', 'fusilli', 'tagliatelle', 'macaroni', 'lasagna', 'lasagne', 'ravioli', 'raviolis', 'tortellini', 'cannelloni', 'cannoli', 'cannolis', 'gnocchi', 'risotto', 'polenta', 'pizza', 'calzone', 'calzones', 'bruschetta', 'focaccia', 'carpaccio', 'panna cotta', 'tiramisu', 'biscotti', 'pesto', 'parmesan', 'mozzarella', 'burrata', 'ricotta', 'mascarpone', 'prosciutto', 'pancetta', 'limoncello', 'prosecco', 'prosseco', 'alfredo', 'bolognese', 'carbonara', 'arborio'],
+  'Continental': ['continental', 'roast', 'roasted', 'steak', 'steaks', 'entrecote', 'ribeye', 'tenderloin', 'venison', 'veal', 'lamb shank', 'rack of lamb', 'liver', 'tongue', 'bone marrow', 'mashed potatoes', 'mash', 'meatloaf', 'pie', 'casserole', 'stuffing', 'gravy', 'juniper', 'pigs in a blanket', 'shepherds pie', 'oysters', 'scotch'],
+  'American': ['american', 'usa', 'southern', 'burger', 'burgers', 'hawaiian', 'mac and cheese', 'bbq', 'barbecue', 'lollipops', 'waffles', 'fried chicken', 'buttermilk', 'baby back', 'ribs', 'brownies', 'brownie', 'pancakes', 'nytimes', 'cheesecake', 'peanut brittle', 'maple syrup', 'tacos', 'hasselback', 'cookies', 'banoffe', 'milk punch'],
+  'Spanish': ['spanish', 'spain', 'catalan', 'paella', 'tapas', 'chorizo', 'gazpacho', 'patatas', 'serrano', 'manchego', 'sangria', 'smoked paprika', 'espelette'],
+  'Middle Eastern': ['middle eastern', 'arabic', 'turkish', 'lebanese', 'persian', 'moroccan', 'babaganouj', 'baba ganoush', 'hummus', 'tahini', 'zaatar', 'sumac', 'pita', 'falafel', 'shakshuka', 'tabbouleh', 'fattoush', 'labneh', 'harissa', 'ras el hanout', 'pomegranate', 'dates'],
+  'Asian': ['asian', 'asianized', 'asia', 'korean', 'korea', 'bulgogi', 'kimchi', 'khimchi', 'gochujang', 'vietnamese', 'pho', 'banh mi', 'malaysian', 'indonesian', 'satay', 'rendang', 'lotus root', 'soy sauce', 'soy', 'sesame oil', 'rice vinegar', 'rice noodles', 'tofu', 'edamame', 'sriracha', 'chilli oil', 'peanut sauce', 'coconut milk', 'ginger'],
+  'European': ['european', 'europe', 'dutch', 'hollandse', 'danish', 'scandinavian', 'swedish', 'norwegian', 'nordic', 'german', 'austrian', 'swiss', 'belgian', 'british', 'english', 'irish', 'polish', 'hungarian', 'goulash', 'stampot', 'stamppot', 'jagtschotel', 'pastijtje', 'bitterballen', 'grostl', 'gröstl', 'smorrebrod', 'smerbrod', 'herring', 'rye bread', 'sauerkraut', 'frantzen', 'easter', 'gouda', 'red cabbage', 'mustard soup'],
+};
+const CUISINE_RE = Object.fromEntries(Object.entries(CUISINE_RULES).map(([c, kws]) => [c, kws.map(k => new RegExp('\\b' + norm(k).replace(/\s+/g, '\\s+') + '\\b'))]));
+
+export function guessCuisines(recipe) {
+  const title = norm(recipe.title);
+  const ings = norm((recipe.ingredients || []).map(i => i.name).join(' , '));
+  const body = norm([recipe.method, recipe.notes].join(' '));
+  const scores = {};
+  for (const [c, res] of Object.entries(CUISINE_RE)) {
+    let s = 0, t = 0;
+    for (const re of res) { if (re.test(title)) { s += 3; t++; } else if (re.test(ings) || re.test(body)) s += 1; }
+    if (s) scores[c] = { s, t };
+  }
+  // A cuisine named in the title ("Thai green curry", "Indian meatloaf") wins; another cuisine is
+  // added only if the title clearly shows it too ("Italian Anda Bhurji").
+  const NAMED = { Indian: /\b(indian|india|bengali|gujarati|maharashtrian|kolkata)\b/, Japanese: /\bjapan(ese)?\b/, Chinese: /\bchin(ese|a)\b/, Thai: /\bthai\b/,
+    Mediterranean: /\bmediterranean\b/, French: /\bfrench\b/, Italian: /\bital(ian|ia|y)\b/, American: /\bamerican\b/, Spanish: /\b(spanish|catalan)\b/,
+    'Middle Eastern': /\b(arabic|turkish|lebanese|middle eastern)\b/, Asian: /\b(asian|asianized|korean)\b/, European: /\b(dutch|danish|scandinavian|german|european|hollandse)\b/ };
+  const named = Object.keys(NAMED).filter(c => NAMED[c].test(title) && !(c === 'French' && /french toast/.test(title)));
+  if (named.length) {
+    const out = named.slice(0, 2);
+    const extra = Object.entries(scores).filter(([c, v]) => !out.includes(c) && v.t >= 2 && c !== 'Continental' && c !== 'Asian').sort((a, b) => b[1].t - a[1].t)[0];
+    if (extra && out.length < 2) out.push(extra[0]);
+    return out;
+  }
+  // Generic "Asian" and "Continental" signals are weak: only win when nothing more specific does.
+  const ranked = Object.entries(scores).sort((a, b) => b[1].s - a[1].s);
+  const specific = ranked.filter(([c]) => c !== 'Asian' && c !== 'Continental');
+  const out = [];
+  for (const [c, v] of specific) {
+    if (out.length >= 2) break;
+    if (v.t || v.s >= 3) out.push(c);
+  }
+  if (!out.length && scores['Asian'] && (scores['Asian'].t || scores['Asian'].s >= 3)) out.push('Asian');
+  if (!out.length && specific.length && specific[0][1].s >= 2) out.push(specific[0][0]);
+  if (!out.length && scores['Continental']) out.push('Continental');
+  if (!out.length && scores['Asian']) out.push('Asian');
+  // A clearly Asian title ("asianized", "Asian style") adds Asian alongside a European base.
+  if (scores['Asian']?.t && !out.includes('Asian') && out.length < 2) out.push('Asian');
+  return out;
+}

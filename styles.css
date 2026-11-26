@@ -239,3 +239,4 @@ body.viewer .tabbar a[data-tab="new"], body.viewer .tabbar a[data-tab="review"],
 .toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 14px; }
 .toast-action { background: none; border: 0; color: var(--accent-soft); font-weight: 700; padding: 4px 2px; cursor: pointer; font-size: 14px; }
 .btn.danger-text { color: #c0392b; }
+.tag.cuisine { background: var(--good-soft); color: var(--good); text-transform: none; }

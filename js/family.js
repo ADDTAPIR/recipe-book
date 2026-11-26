@@ -8,7 +8,7 @@ const DESC = 'Recipe Book: view-only copy for family and friends';
 export function familyPayload(recipes, synonyms, ownerName, contact) {
   const keep = recipes.filter(r => !r.deleted).map(r => ({
     id: r.id, title: r.title, description: r.description, serves: r.serves, ingredients: r.ingredients,
-    method: r.method, notes: r.notes, mealTypes: r.mealTypes, courses: r.courses, tags: r.tags,
+    method: r.method, notes: r.notes, mealTypes: r.mealTypes, courses: r.courses, cuisines: r.cuisines, tags: r.tags,
     links: r.links, updatedAt: r.updatedAt, reviewed: true,
   }));
   return JSON.stringify({ app: 'recipe-book', kind: 'family', ownerName, contact: contact || {}, publishedAt: Date.now(), recipes: keep, synonyms });
@@ -16,7 +16,7 @@ export function familyPayload(recipes, synonyms, ownerName, contact) {
 
 export function familyKey(recipes, synonymsUpdatedAt, ownerName) {
   let max = 0; for (const r of recipes) if ((r.updatedAt || 0) > max) max = r.updatedAt;
-  return [recipes.length, max, synonymsUpdatedAt || 0, ownerName].join(':');
+  return ['v2', recipes.length, max, synonymsUpdatedAt || 0, ownerName].join(':');
 }
 
 export async function createFamily(token, payload) {

@@ -127,7 +127,7 @@ export class SearchIndex {
       return {
         r, ings,
         title: words(r.title),
-        cats: words([...(r.mealTypes || []), ...(r.courses || []), ...(r.tags || [])].join(' ')),
+        cats: words([...(r.mealTypes || []), ...(r.courses || []), ...(r.cuisines || []), ...(r.tags || [])].join(' ')),
         body: words([r.description, r.method, r.notes].join(' ')),
       };
     });
@@ -175,6 +175,7 @@ export class SearchIndex {
       const r = d.r;
       if (filters.mealType && !(r.mealTypes || []).includes(filters.mealType)) continue;
       if (filters.course && !(r.courses || []).includes(filters.course)) continue;
+      if (filters.cuisine && !(r.cuisines || []).includes(filters.cuisine)) continue;
       if (filters.favourite && !r.favourite) continue;
       if (filters.needsReview && r.reviewed) continue;
       if (filters.needsAmounts && !r.ingredients.some(i => !i.qty)) continue;
