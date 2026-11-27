@@ -50,16 +50,18 @@ export function mergeRecipes(local, remote) {
 }
 
 // Returns { recipes, synonyms, gistId, changedLocal }
-export async function syncNow({ token, gistId, recipes, synonyms, synonymsUpdatedAt }) {
+export async function syncNow({ token, gistId, recipes, synonyms, synonymsUpdatedAt, lists, listsUpdatedAt }) {
   if (!gistId) gistId = await findGist(token);
   let remote = { recipes: [], synonyms: null, synonymsUpdatedAt: 0 };
   if (gistId) remote = await readGist(token, gistId);
   const { merged, changedLocal } = mergeRecipes(recipes, remote.recipes || []);
   let syn = synonyms, synAt = synonymsUpdatedAt || 0;
   if (remote.synonyms && (remote.synonymsUpdatedAt || 0) > synAt) { syn = remote.synonyms; synAt = remote.synonymsUpdatedAt; }
-  const payload = JSON.stringify({ app: 'recipe-book', version: 1, savedAt: Date.now(), recipes: merged, synonyms: syn, synonymsUpdatedAt: synAt });
+  let lst = lists, lstAt = listsUpdatedAt || 0;
+  if (remote.lists && (remote.listsUpdatedAt || 0) > lstAt) { lst = remote.lists; lstAt = remote.listsUpdatedAt; }
+  const payload = JSON.stringify({ app: 'recipe-book', version: 1, savedAt: Date.now(), recipes: merged, synonyms: syn, synonymsUpdatedAt: synAt, lists: lst, listsUpdatedAt: lstAt });
   const body = JSON.stringify({ description: DESC, files: { [FILE]: { content: payload } } });
   if (gistId) await gh(token, '/gists/' + gistId, { method: 'PATCH', body });
   else gistId = (await gh(token, '/gists', { method: 'POST', body: JSON.stringify({ description: DESC, public: false, files: { [FILE]: { content: payload } } }) })).id;
-  return { recipes: merged, synonyms: syn, synonymsUpdatedAt: synAt, gistId, changedLocal };
+  return { recipes: merged, synonyms: syn, synonymsUpdatedAt: synAt, lists: lst, listsUpdatedAt: lstAt, gistId, changedLocal };
 }

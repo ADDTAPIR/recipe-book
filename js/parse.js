@@ -224,7 +224,7 @@ function scoreRules(rules, title, all) {
 const TITLE_ONLY_COURSES = new Set(['sauce', 'bread', 'amuse-bouche', 'side']);
 const PROTEIN = /\b(chicken|beef|lamb|pork|fish|salmon|cod|prawns?|shrimps?|lobster|duck|venison|veal|steak|mutton|tuna|scallops?|mackerel|octopus|squid|calamari|sausages?|tofu|paneer|ribs?|tenderloin|entrecote|ribeye|kheema|mince|meatballs?|liver|ham|chops|herring|oysters?|anchov(?:y|ies)|catfish|pomfret|rohu|monkfish|langoustines?|garnalen|bone marrow)\b/;
 
-export function categorize(recipe) {
+function categorizeRaw(recipe) {
   const title = norm(recipe.title);
   const all = norm([recipe.title, recipe.description, recipe.ingredients.map(i => i.name).join(' '), recipe.notes].join(' '));
   const cs = scoreRules(COURSE_RULES, title, all);
@@ -262,7 +262,7 @@ export function categorize(recipe) {
 }
 
 // ---------- Cuisine ----------
-export const CUISINES = ['Indian', 'Japanese', 'Chinese', 'Thai', 'Mediterranean', 'French', 'Italian', 'Continental', 'American', 'Spanish', 'Middle Eastern', 'Asian', 'European'];
+export const CUISINES = ['Indian', 'Japanese', 'Chinese', 'Thai', 'Mediterranean', 'French', 'Italian', 'Continental', 'American', 'Spanish', 'Middle Eastern', 'Asian', 'European', 'Quick'];
 // Title words count 3, ingredients and method count 1 (each keyword once).
 const CUISINE_RULES = {
   'Indian': ['indian', 'india', 'bengali', 'gujarati', 'maharashtrian', 'kolkata', 'baroda', 'mughlai', 'moglai', 'kheema', 'keema', 'biryani', 'paratha', 'naan', 'roti', 'chapati', 'dosa', 'idli', 'daal', 'dal', 'dhal', 'masala', 'tikka', 'korma', 'curry', 'paneer', 'payesh', 'kheer', 'halva', 'halwa', 'samosa', 'pakora', 'bhaji', 'bharta', 'bhurji', 'anda', 'khichdi', 'handvo', 'khaman', 'khandvi', 'poha', 'sabudana', 'lassi', 'raita', 'chutney', 'hariyali', 'nalli', 'karela', 'chingri', 'maach', 'sorse', 'kalia', 'aalu', 'aloo', 'gobi', 'sambar', 'garam masala', 'curry leaves', 'turmeric', 'ghee', 'asafoetida', 'hing', 'urad dal', 'chana dal', 'toor dal', 'mustard oil', 'kashmiri', 'aamchur', 'amchur', 'besan', 'chaat masala', 'panch phoron', 'nigella seeds', 'cardamom'],
@@ -281,7 +281,7 @@ const CUISINE_RULES = {
 };
 const CUISINE_RE = Object.fromEntries(Object.entries(CUISINE_RULES).map(([c, kws]) => [c, kws.map(k => new RegExp('\\b' + norm(k).replace(/\s+/g, '\\s+') + '\\b'))]));
 
-export function guessCuisines(recipe) {
+function guessCuisinesRaw(recipe) {
   const title = norm(recipe.title);
   const ings = norm((recipe.ingredients || []).map(i => i.name).join(' , '));
   const body = norm([recipe.method, recipe.notes].join(' '));
@@ -319,3 +319,18 @@ export function guessCuisines(recipe) {
   if (scores['Asian']?.t && !out.includes('Asian') && out.length < 2) out.push('Asian');
   return out;
 }
+
+// ---------- Editable lists ----------
+// The owner can add or remove choices (More > Meal, course and cuisine). The arrays above are
+// updated in place so every screen sees the current lists; guesses never use a removed choice.
+export const DEFAULT_LISTS = { mealTypes: [...MEAL_TYPES], courses: [...COURSES], cuisines: [...CUISINES] };
+export function setLists(l) {
+  for (const [k, arr] of [['mealTypes', MEAL_TYPES], ['courses', COURSES], ['cuisines', CUISINES]])
+    if (Array.isArray(l?.[k])) arr.splice(0, arr.length, ...l[k]);
+}
+export function getLists() { return { mealTypes: [...MEAL_TYPES], courses: [...COURSES], cuisines: [...CUISINES] }; }
+export function categorize(recipe) {
+  const c = categorizeRaw(recipe);
+  return { mealTypes: c.mealTypes.filter(x => MEAL_TYPES.includes(x)), courses: c.courses.filter(x => COURSES.includes(x)) };
+}
+export function guessCuisines(recipe) { return guessCuisinesRaw(recipe).filter(c => CUISINES.includes(c)); }

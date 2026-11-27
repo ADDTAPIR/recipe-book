@@ -1,6 +1,6 @@
 import { db, persist } from './db.js';
 import { escapeHtml as h, norm, uid } from './text.js';
-import { MEAL_TYPES, COURSES, CUISINES, splitRecipes, parseRecipe, parseIngredientLine, newRecipe, categorize, guessCuisines } from './parse.js';
+import { MEAL_TYPES, COURSES, CUISINES, setLists, getLists, splitRecipes, parseRecipe, parseIngredientLine, newRecipe, categorize, guessCuisines } from './parse.js';
 import { SearchIndex, DEFAULT_SYNONYMS } from './search.js';
 import { extractIngredients } from './vocab.js';
 import { syncNow } from './sync.js';
@@ -12,6 +12,7 @@ const S = {
   recipes: [],
   synonyms: DEFAULT_SYNONYMS,
   synonymsUpdatedAt: 0,
+  listsUpdatedAt: 0,
   index: null,
   query: '',
   filters: { mealType: '', course: '', cuisine: '', favourite: false, needsReview: false, needsAmounts: false },
@@ -119,7 +120,7 @@ async function render() {
   $('#topActions').innerHTML = '';
   $('#backBtn').hidden = true;
   document.querySelectorAll('.tabbar a').forEach(a => a.classList.remove('active'));
-  if (V() && /^\/(new|edit|import|review|sync|synonyms|family|deleted)/.test(hash)) { location.replace('#/'); return; }
+  if (V() && /^\/(new|edit|import|review|sync|synonyms|categories|family|deleted)/.test(hash)) { location.replace('#/'); return; }
   for (const [re, fn] of routes) {
     const m = hash.match(re);
     if (m) { await fn(...m.slice(1)); break; }
@@ -147,6 +148,9 @@ route(/^\/$/, () => {
   const f = S.filters;
   const chip = (group, val, label) => `<button class="chip ${f[group] === val ? 'on' : ''}" data-g="${group}" data-v="${h(val)}">${h(label || val)}</button>`;
   const toggle = (k, label) => `<button class="chip ${f[k] ? 'on' : ''}" data-t="${k}">${label}</button>`;
+  if (f.course && !COURSES.includes(f.course)) f.course = '';
+  if (f.mealType && !MEAL_TYPES.includes(f.mealType)) f.mealType = '';
+  if (f.cuisine && !CUISINES.includes(f.cuisine)) f.cuisine = '';
   const used = (key, list) => { const s = new Set(live().flatMap(r => r[key] || [])); return list.filter(x => s.has(x)); };
   view.innerHTML = `
     <div class="searchbox">
@@ -395,7 +399,7 @@ function openSheet(html, onMount) {
 function closeSheet() { $('#sheet').hidden = true; $('#sheetBackdrop').hidden = true; }
 
 function openCategorySheet(r, after) {
-  const chips = (list, key) => list.map(c => `<button class="chip ${(r[key] || []).includes(c) ? 'on' : ''}" data-k="${key}" data-c="${c}">${c}</button>`).join('');
+  const chips = (list, key) => list.map(c => `<button class="chip ${(r[key] || []).includes(c) ? 'on' : ''}" data-k="${key}" data-c="${h(c)}">${h(c)}</button>`).join('');
   openSheet(`<h2>${h(r.title)}</h2>
     <div class="chip-label">Course</div><div class="chips wrap">${chips(COURSES, 'courses')}</div>
     <div class="chip-label">Meal</div><div class="chips wrap">${chips(MEAL_TYPES, 'mealTypes')}</div>
@@ -442,7 +446,7 @@ function editView(r, isNew) {
   if (isNew) setTab('new');
   showBack(isNew ? '#/' : '#/r/' + r.id);
   setTitle(isNew ? 'New recipe' : 'Edit recipe');
-  const chips = (list, key) => list.map(c => `<button type="button" class="chip ${(r[key] || []).includes(c) ? 'on' : ''}" data-k="${key}" data-c="${c}">${c}</button>`).join('');
+  const chips = (list, key) => list.map(c => `<button type="button" class="chip ${(r[key] || []).includes(c) ? 'on' : ''}" data-k="${key}" data-c="${h(c)}">${h(c)}</button>`).join('');
   view.innerHTML = `
     <form id="ef" autocomplete="off">
       <label class="field"><span>Name</span><input type="text" name="title" value="${h(r.title)}" required placeholder="e.g. Spaghetti with sausage and parsley"></label>
@@ -560,7 +564,7 @@ route(/^\/review$/, () => {
   setTab('review'); setTitle('Review');
   const list = live().filter(r => !r.reviewed).sort((a, b) => norm(a.title).localeCompare(norm(b.title)));
   if (!list.length) { view.innerHTML = `<div class="empty"><h2>All reviewed</h2><p>Every recipe has had its course and meal checked.</p></div>`; return; }
-  const chips = (r, list2, key) => list2.map(c => `<button class="chip small ${(r[key] || []).includes(c) ? 'on' : ''}" data-id="${r.id}" data-k="${key}" data-c="${c}">${c}</button>`).join('');
+  const chips = (r, list2, key) => list2.map(c => `<button class="chip small ${(r[key] || []).includes(c) ? 'on' : ''}" data-id="${r.id}" data-k="${key}" data-c="${h(c)}">${h(c)}</button>`).join('');
   view.innerHTML = `<p class="hint">These were sorted automatically. Tap to change the course, meal and cuisine, then tick. ${list.length} to go.</p>
     <ul class="results">${list.slice(0, 30).map(r => `<li class="card import-item" data-card="${r.id}">
       <h3 style="justify-content:space-between"><a href="#/r/${r.id}" style="color:inherit;text-decoration:none">${h(r.title)}</a></h3>
@@ -654,9 +658,55 @@ async function importBackup(text) {
     else if ((r.updatedAt || 0) > (cur.updatedAt || 0)) { Object.assign(cur, r); updated++; }
   }
   if (data.synonyms && (data.synonymsUpdatedAt || 0) > S.synonymsUpdatedAt) { S.synonyms = data.synonyms; S.synonymsUpdatedAt = data.synonymsUpdatedAt; await db.setSetting('synonyms', { list: S.synonyms, at: S.synonymsUpdatedAt }); }
+  if (data.lists && (data.listsUpdatedAt || 0) > S.listsUpdatedAt) await applyLists(data.lists, data.listsUpdatedAt);
   await db.putRecipes(S.recipes); await migrateLinks(); await fillTags(); rebuild(); scheduleSync();
   toast(`Loaded: ${added} new, ${updated} updated`); go('#/');
 }
+
+// ---------------- Meal / course / cuisine choices ----------------
+async function applyLists(lists, at) {
+  setLists(lists); S.listsUpdatedAt = at;
+  await db.setSetting('lists', { lists: getLists(), at });
+}
+async function saveLists() { await applyLists(getLists(), Date.now()); rebuild(); scheduleSync(); }
+const LIST_GROUPS = [['courses', 'Course', () => COURSES, true], ['mealTypes', 'Meal', () => MEAL_TYPES, true], ['cuisines', 'Cuisine', () => CUISINES, false]];
+
+route(/^\/categories$/, () => {
+  showBack('#/settings'); setTitle('Choices');
+  const count = (k, v) => live().filter(r => (r[k] || []).includes(v)).length;
+  view.innerHTML = `<p class="hint">These are the choices for the Course, Meal and Cuisine filters. Tap ✕ to remove one, or type a new one and tap Add. Changes reach your other devices and the family version when you sync.</p>` +
+    LIST_GROUPS.map(([k, label, list]) => `
+    <div class="settings-group">${label}</div>
+    <div class="card">
+      <div class="chips wrap">${list().map(v => `<span class="chip cat-chip">${h(v)}<small>${count(k, v) || ''}</small><button type="button" class="cat-del" data-k="${k}" data-v="${h(v)}" aria-label="Remove ${h(v)}">✕</button></span>`).join('') || '<span class="hint">None yet</span>'}</div>
+      <form class="cat-add" data-k="${k}"><input type="text" maxlength="30" placeholder="New ${label.toLowerCase()}, e.g. ${k === 'cuisines' ? 'Mexican' : k === 'courses' ? 'canapé' : 'picnic'}" autocomplete="off"><button class="btn secondary" type="submit">Add</button></form>
+    </div>`).join('');
+  view.querySelectorAll('.cat-add').forEach(form => form.onsubmit = async e => {
+    e.preventDefault();
+    const k = form.dataset.k, [, , list, lower] = LIST_GROUPS.find(g => g[0] === k);
+    let v = form.querySelector('input').value.trim().replace(/\s+/g, ' ');
+    if (!v) return;
+    v = lower ? v.toLowerCase() : v.charAt(0).toUpperCase() + v.slice(1);
+    if (list().some(x => x.toLowerCase() === v.toLowerCase())) { toast(`“${v}” is already there`); return; }
+    list().push(v); await saveLists(); render(); toast(`Added “${v}”`);
+  });
+  view.querySelectorAll('.cat-del').forEach(b => b.onclick = async () => {
+    const k = b.dataset.k, v = b.dataset.v, list = LIST_GROUPS.find(g => g[0] === k)[2]();
+    const pos = list.indexOf(v); if (pos < 0) return;
+    const now = Date.now(), touched = [];
+    for (const r of S.recipes) if ((r[k] || []).includes(v)) { touched.push([r, r[k], r.updatedAt]); r[k] = r[k].filter(x => x !== v); r.updatedAt = now; }
+    list.splice(pos, 1);
+    if (touched.length) await db.putRecipes(touched.map(t => t[0]));
+    await saveLists(); render();
+    toast(touched.length ? `Removed “${v}” (from ${touched.length} recipe${touched.length > 1 ? 's' : ''})` : `Removed “${v}”`, { label: 'Undo', fn: async () => {
+      list.splice(Math.min(pos, list.length), 0, v);
+      const t2 = Date.now();
+      for (const [r, old] of touched) { r[k] = old; r.updatedAt = t2; }
+      if (touched.length) await db.putRecipes(touched.map(t => t[0]));
+      await saveLists(); if (render.current === '/categories') render();
+    } });
+  });
+});
 
 // ---------------- Settings ----------------
 route(/^\/settings$/, () => {
@@ -668,6 +718,7 @@ route(/^\/settings$/, () => {
   view.innerHTML = `
     <div class="settings-group">Your recipe book</div>
     <div class="card"><ul class="list-plain">
+      <li><a class="row-link" href="#/categories">Meal, course and cuisine choices <small>${MEAL_TYPES.length + COURSES.length + CUISINES.length} ›</small></a></li>
       <li><a class="row-link" href="#/synonyms">Ingredient names that mean the same <small>${S.synonyms.length} groups ›</small></a></li>
       <li><a class="row-link" href="#/sync">Sync between phone and Mac <small>${h(syncLine)} ›</small></a></li>
       <li><a class="row-link" href="#/family">Share with family and friends <small>${S.family?.gistId ? 'On' : 'Off'} ›</small></a></li>
@@ -686,7 +737,7 @@ route(/^\/settings$/, () => {
     <div class="card"><ul class="list-plain"><li><button class="row-link" id="wipe" style="color:#c0392b">Remove all recipes from this device</button></li></ul></div>
     <p class="hint" style="text-align:center;margin-top:20px">Recipe Book</p>`;
   $('#exportJson').onclick = () => download(`recipe-book-backup-${new Date().toISOString().slice(0, 10)}.json`,
-    JSON.stringify({ app: 'recipe-book', version: 1, savedAt: Date.now(), recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt }, null, 1), 'application/json');
+    JSON.stringify({ app: 'recipe-book', version: 1, savedAt: Date.now(), recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt, lists: getLists(), listsUpdatedAt: S.listsUpdatedAt }, null, 1), 'application/json');
   $('#exportTxt').onclick = () => download('recipes.txt', shareText(live().sort((a, b) => norm(a.title).localeCompare(norm(b.title)))).replace(/\*/g, ''), 'text/plain');
   $('#wipe').onclick = async () => {
     if (!confirm('Remove every recipe from this device? Download a backup first if unsure.')) return;
@@ -759,10 +810,11 @@ async function doSync(manual) {
   if (!navigator.onLine) { if (manual) toast('You’re offline. Changes will sync when you’re back online.'); return; }
   syncing = true;
   try {
-    const res = await syncNow({ token: S.sync.token, gistId: S.sync.gistId, recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt });
+    const res = await syncNow({ token: S.sync.token, gistId: S.sync.gistId, recipes: S.recipes, synonyms: S.synonyms, synonymsUpdatedAt: S.synonymsUpdatedAt, lists: getLists(), listsUpdatedAt: S.listsUpdatedAt });
     S.sync = { ...S.sync, gistId: res.gistId, lastSync: Date.now(), error: '' };
     if (res.changedLocal) { S.recipes = res.recipes; await db.putRecipes(S.recipes); await fillTags(); }
     if (res.synonyms && res.synonymsUpdatedAt > S.synonymsUpdatedAt) { S.synonyms = res.synonyms; S.synonymsUpdatedAt = res.synonymsUpdatedAt; await db.setSetting('synonyms', { list: S.synonyms, at: S.synonymsUpdatedAt }); }
+    if (res.lists && res.listsUpdatedAt > S.listsUpdatedAt) { await applyLists(res.lists, res.listsUpdatedAt); if (['/', '/categories', '/review'].includes(render.current)) render(); }
     rebuild();
     if (res.changedLocal && (render.current === '/' || render.current === '/review')) render();
     if (manual) toast(res.changedLocal ? `Synced: ${res.changedLocal} updates received` : 'Synced');
@@ -780,10 +832,10 @@ async function doSync(manual) {
 async function saveFamily() { await db.setSetting('family', S.family); }
 async function publishFamily(force) {
   const f = S.family; if (!f?.gistId || !S.sync?.token || !navigator.onLine) return;
-  const key = familyKey(live(), S.synonymsUpdatedAt, f.name + JSON.stringify(f.contact || {}));
+  const key = familyKey(live(), S.synonymsUpdatedAt, f.name + JSON.stringify(f.contact || {}) + S.listsUpdatedAt);
   if (!force && key === f.key) return;
   try {
-    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, '', f.contact));
+    await updateFamily(S.sync.token, f.gistId, familyPayload(S.recipes, S.synonyms, '', f.contact, getLists()));
     S.family = { ...f, key, publishedAt: Date.now(), error: '' };
   } catch (e) { S.family = { ...f, error: e.message }; }
   await saveFamily();
@@ -805,7 +857,7 @@ route(/^\/family$/, () => {
       const b = $('#famCreate'); b.disabled = true; b.textContent = 'Creating…';
       const name = '';
       try {
-        const g = await createFamily(S.sync.token, familyPayload(S.recipes, S.synonyms, name));
+        const g = await createFamily(S.sync.token, familyPayload(S.recipes, S.synonyms, name, undefined, getLists()));
         S.family = { gistId: g.gistId, owner: g.owner, name, key: familyKey(live(), S.synonymsUpdatedAt, name), publishedAt: Date.now() };
         await saveFamily(); scheduleSync(); render();
       } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Create the family link'; }
@@ -863,7 +915,8 @@ async function refreshViewer(manual) {
     await db.putRecipes(incoming);
     S.recipes = incoming;
     if (data.synonyms) S.synonyms = data.synonyms;
-    S.viewer = { ...S.viewer, ownerName: data.ownerName || S.viewer.ownerName, contact: data.contact || {}, updatedAt: data.publishedAt || Date.now(), checkedAt: Date.now(), error: '' };
+    if (data.lists) setLists(data.lists);
+    S.viewer = { ...S.viewer, ownerName: data.ownerName || S.viewer.ownerName, contact: data.contact || {}, lists: data.lists || S.viewer.lists, updatedAt: data.publishedAt || Date.now(), checkedAt: Date.now(), error: '' };
     rebuild(); if (['/', '/settings'].includes(render.current) || render.current.startsWith('/r/')) render();
     if (manual) toast('Up to date');
   } catch (e) {
@@ -944,6 +997,7 @@ async function migrateLinks() {
 // ---------------- Boot ----------------
 async function bootViewer() {
   document.body.classList.add('viewer');
+  if (S.viewer?.lists) setLists(S.viewer.lists);
   rebuild();
   persist();
   window.addEventListener('hashchange', render);
@@ -982,6 +1036,8 @@ async function boot() {
   if (V()) { S.myLikes = (await db.getSetting('myLikes')) || {}; S.myName = (await db.getSetting('myName')) || ''; return bootViewer(); }
   const syn = await db.getSetting('synonyms');
   if (syn?.list) { S.synonyms = syn.list; S.synonymsUpdatedAt = syn.at || 0; }
+  const lists = await db.getSetting('lists');
+  if (lists?.lists) { setLists(lists.lists); S.listsUpdatedAt = lists.at || 0; }
   S.sync = (await db.getSetting('sync')) || null;
   await migrateLinks();
   await fillTags();

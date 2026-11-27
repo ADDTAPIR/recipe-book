@@ -240,3 +240,10 @@ body.viewer .tabbar a[data-tab="new"], body.viewer .tabbar a[data-tab="review"],
 .toast-action { background: none; border: 0; color: var(--accent-soft); font-weight: 700; padding: 4px 2px; cursor: pointer; font-size: 14px; }
 .btn.danger-text { color: #c0392b; }
 .tag.cuisine { background: var(--good-soft); color: var(--good); text-transform: none; }
+
+.cat-chip { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+.cat-chip small { color: var(--muted); font-size: 11px; }
+.cat-del { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 0 0 0 2px; cursor: pointer; line-height: 1; }
+.cat-del:hover { color: #c0392b; }
+.cat-add { display: flex; gap: 8px; margin-top: 10px; }
+.cat-add input { flex: 1; min-width: 0; }
